@@ -1,0 +1,138 @@
+"""
+Configuration loader for YouTube Downloader application.
+Loads environment variables from Firebase Remote Config and initializes the application.
+"""
+import os
+import logging
+from dotenv import load_dotenv
+import firebase_admin
+from firebase_admin import credentials, remote_config
+
+# Load .env file for local development
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+
+class Config:
+    """Application configuration loaded from environment variables."""
+    
+    # Firebase
+    FIREBASE_SERVICE_ACCOUNT_KEY_PATH = os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY_PATH')
+    
+    # MongoDB
+    MONGODB_URI = os.getenv('MONGODB_URI')
+    MONGODB_DB_NAME = os.getenv('MONGODB_DB_NAME', 'yt_downloader')
+    
+    # Redis
+    REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
+    REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
+    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')
+    REDIS_DB = int(os.getenv('REDIS_DB', 0))
+    
+    # JWT
+    JWT_PUBLIC_SECRET = os.getenv('JWT_PUBLIC_SECRET')
+    JWT_PRIVATE_SECRET = os.getenv('JWT_PRIVATE_SECRET')
+    JWT_PUBLIC_EXPIRATION = int(os.getenv('JWT_PUBLIC_EXPIRATION', 86400))  # 24 hours
+    JWT_PRIVATE_EXPIRATION = int(os.getenv('JWT_PRIVATE_EXPIRATION', 604800))  # 7 days
+    
+    # Flask
+    FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')
+    FLASK_ENV = os.getenv('FLASK_ENV', 'production')
+    PORT = int(os.getenv('PORT', 5000))
+    
+    # Application
+    DOWNLOADS_DIR = os.getenv('DOWNLOADS_DIR', './downloads')
+    MAX_VIDEO_DURATION = int(os.getenv('MAX_VIDEO_DURATION', 3600))  # 1 hour
+    VIDEO_RETENTION_MINUTES = int(os.getenv('VIDEO_RETENTION_MINUTES', 30))
+    CLEANUP_INTERVAL_MINUTES = int(os.getenv('CLEANUP_INTERVAL_MINUTES', 5))
+    
+    # Logging
+    LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+    LOG_FILE = os.getenv('LOG_FILE', './logs/app.log')
+    
+    @classmethod
+    def validate(cls):
+        """Validate that all required configuration values are set."""
+        required_vars = [
+            'MONGODB_URI',
+            'JWT_PUBLIC_SECRET',
+            'JWT_PRIVATE_SECRET',
+            'FLASK_SECRET_KEY',
+        ]
+        
+        missing_vars = []
+        for var in required_vars:
+            if not getattr(cls, var):
+                missing_vars.append(var)
+        
+        if missing_vars:
+            raise ValueError(
+                f"Missing required environment variables: {', '.join(missing_vars)}"
+            )
+        
+        logger.info("Configuration validated successfully")
+        return True
+
+
+def init_firebase_config():
+    """
+    Initialize Firebase Admin SDK and load remote config.
+    This should be called before starting the application.
+    """
+    try:
+        # Check if Firebase is already initialized
+        if not firebase_admin._apps:
+            # Initialize Firebase Admin SDK
+            if Config.FIREBASE_SERVICE_ACCOUNT_KEY_PATH and os.path.exists(
+                Config.FIREBASE_SERVICE_ACCOUNT_KEY_PATH
+            ):
+                cred = credentials.Certificate(Config.FIREBASE_SERVICE_ACCOUNT_KEY_PATH)
+                firebase_admin.initialize_app(cred)
+                logger.info("Firebase Admin SDK initialized successfully")
+                
+                # Note: Firebase Remote Config is typically used for client apps
+                # For server-side config, we're using environment variables
+                # If you want to use Firebase Remote Config, you can implement it here
+            else:
+                logger.warning(
+                    "Firebase service account key not found. "
+                    "Skipping Firebase initialization. "
+                    "Using environment variables only."
+                )
+        
+        # Validate configuration
+        Config.validate()
+        
+        # Create necessary directories
+        os.makedirs(Config.DOWNLOADS_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(Config.LOG_FILE) if os.path.dirname(Config.LOG_FILE) else './logs', exist_ok=True)
+        
+        logger.info("Configuration initialized successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize Firebase config: {str(e)}")
+        raise
+
+
+def setup_logging():
+    """Configure application logging."""
+    log_level = getattr(logging, Config.LOG_LEVEL.upper(), logging.INFO)
+    
+    # Create logs directory if it doesn't exist
+    log_dir = os.path.dirname(Config.LOG_FILE)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+    
+    # Configure logging
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(Config.LOG_FILE),
+            logging.StreamHandler()
+        ]
+    )
+    
+    logger.info(f"Logging configured with level: {Config.LOG_LEVEL}")

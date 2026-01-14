@@ -1,0 +1,20 @@
+[Unit]
+Description=YouTube Video Downloader Service
+After=network.target mongodb.service redis.service
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/yt-downloader
+Environment="PATH=/var/www/yt-downloader/venv/bin"
+ExecStart=/var/www/yt-downloader/venv/bin/gunicorn -c gunicorn_config.py "start_server:create_application()"
+Restart=always
+RestartSec=10
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
