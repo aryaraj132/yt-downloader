@@ -33,13 +33,11 @@ Make a middleware to check the auth token and redis-cache session, if the token 
 
 - git
 
-## How to commit after code change
+## Itteration 2 feature:
 
-- Follow these instruction whenever user asks to commit any changes
-- First ask for new branch or verify current branch if not on develop or main branch, We cannot commit to main branch and in develop we can only merge the changes of branch
-- Follow this step by step to commit the changes 
-  - use the command commit "commit message" - this command adds all the changes, commit with the commit message and push to github(create new branch if not created)
-  - use the command gh pr create to create a PR, this will let you know if pr is already created
-  - after every commit checkout to develop branch, use the command ckt develop and merge the branch into develop and push (In case of conflict let user clear the conflicts)
-  - checkout back to the branch to continue
-- Important commands ckt branchName To checkout to any branch; branch branchName to create new branch
+In the current implementation add a feature to encode other format videos to mp4 video.
+ask for video encoding H.264, H.265, AV1, audio encoding aac so that we convert any video to supported mp4 format which can be used anywhere.
+
+Note: We do not reduce any quality and conversion should be almost lossless
+
+Inspired by: https://cloudconvert.com/

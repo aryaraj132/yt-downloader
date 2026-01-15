@@ -49,7 +49,9 @@ class Video:
                 'file_path': None,
                 'created_at': datetime.utcnow(),
                 'expires_at': None,  # Will be set after download completes
-                'error_message': None
+                'error_message': None,
+                'source_type': 'youtube',  # 'youtube' or 'upload'
+                'encoding_progress': 0
             }
             
             result = db.videos.insert_one(video_doc)
@@ -214,4 +216,80 @@ class Video:
             
         except Exception as e:
             logger.error(f"Failed to verify video ownership: {str(e)}")
+            return False
+    
+    @staticmethod
+    def create_encode_request(
+        user_id: str,
+        original_filename: str,
+        input_file_path: str,
+        video_codec: str = 'h264',
+        quality_preset: str = 'high'
+    ) -> Optional[str]:
+        """
+        Create a new video encoding request.
+        
+        Args:
+            user_id: User ID as string
+            original_filename: Original uploaded filename
+            input_file_path: Path to uploaded video file
+            video_codec: Video codec to use (h264, h265, av1)
+            quality_preset: Quality preset (lossless, high, medium)
+            
+        Returns:
+            Encode ID as string if successful, None otherwise
+        """
+        try:
+            db = get_database()
+            
+            encode_doc = {
+                'user_id': ObjectId(user_id),
+                'source_type': 'upload',
+                'original_filename': original_filename,
+                'input_file_path': input_file_path,
+                'video_codec': video_codec,
+                'quality_preset': quality_preset,
+                'audio_codec': 'aac',
+                'status': VideoStatus.PENDING,
+                'encoding_progress': 0,
+                'file_path': None,
+                'created_at': datetime.utcnow(),
+                'encoding_started_at': None,
+                'encoding_completed_at': None,
+                'expires_at': None,
+                'error_message': None,
+                'url': None,  # Not applicable for uploads
+                'start_time': None,  # Not applicable for uploads
+                'end_time': None  # Not applicable for uploads
+            }
+            
+            result = db.videos.insert_one(encode_doc)
+            logger.info(f"Encode request created for user {user_id}: {original_filename}")
+            return str(result.inserted_id)
+            
+        except Exception as e:
+            logger.error(f"Failed to create encode request: {str(e)}")
+            return None
+    
+    @staticmethod
+    def update_encoding_progress(encode_id: str, progress: int) -> bool:
+        """
+        Update encoding progress percentage.
+        
+        Args:
+            encode_id: Encode request ID
+            progress: Progress percentage (0-100)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            db = get_database()
+            result = db.videos.update_one(
+                {'_id': ObjectId(encode_id)},
+                {'$set': {'encoding_progress': progress}}
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Failed to update encoding progress: {str(e)}")
             return False

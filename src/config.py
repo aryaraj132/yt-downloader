@@ -43,9 +43,16 @@ class Config:
     
     # Application
     DOWNLOADS_DIR = os.getenv('DOWNLOADS_DIR', './downloads')
+    UPLOADS_DIR = os.getenv('UPLOADS_DIR', './uploads')
     MAX_VIDEO_DURATION = int(os.getenv('MAX_VIDEO_DURATION', 3600))  # 1 hour
+    MAX_UPLOAD_SIZE_MB = int(os.getenv('MAX_UPLOAD_SIZE_MB', 500))  # 500MB
     VIDEO_RETENTION_MINUTES = int(os.getenv('VIDEO_RETENTION_MINUTES', 30))
     CLEANUP_INTERVAL_MINUTES = int(os.getenv('CLEANUP_INTERVAL_MINUTES', 5))
+    ENCODING_TIMEOUT_SECONDS = int(os.getenv('ENCODING_TIMEOUT_SECONDS', 1800))  # 30 minutes
+    ALLOWED_VIDEO_FORMATS = os.getenv(
+        'ALLOWED_VIDEO_FORMATS',
+        'mp4,avi,mkv,mov,flv,wmv,webm,m4v,mpg,mpeg,3gp'
+    ).split(',')
     
     # Logging
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
@@ -106,6 +113,7 @@ def init_firebase_config():
         
         # Create necessary directories
         os.makedirs(Config.DOWNLOADS_DIR, exist_ok=True)
+        os.makedirs(Config.UPLOADS_DIR, exist_ok=True)
         os.makedirs(os.path.dirname(Config.LOG_FILE) if os.path.dirname(Config.LOG_FILE) else './logs', exist_ok=True)
         
         logger.info("Configuration initialized successfully")

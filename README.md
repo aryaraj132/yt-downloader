@@ -7,6 +7,7 @@ A production-ready Python service for downloading YouTube video segments with us
 - **User Management**: Register, login, logout, and password management
 - **Two-Tier Authentication**: Public tokens for saving video info, private tokens for downloads
 - **Video Processing**: Extract specific time segments from YouTube videos using yt-dlp
+- **Video Encoding**: Convert any video format to MP4 with H.264, H.265, or AV1 codecs
 - **Session Management**: Dual storage in MongoDB and Redis for optimal performance
 - **Auto Cleanup**: Automatically delete video files after 30 minutes
 - **Production Ready**: Systemd service, proper logging, error handling
@@ -194,6 +195,87 @@ Response:
   "video_id": "...",
   "status": "completed",
   "file_available": true
+}
+```
+
+### Video Encoding Endpoints
+
+#### Upload Video for Encoding
+```http
+POST /api/encode/upload
+Authorization: Bearer <private_token>
+Content-Type: multipart/form-data
+
+Form Data:
+  video: <video_file>
+
+Response:
+{
+  "encode_id": "...",
+  "original_filename": "video.avi",
+  "file_size_mb": 45.2,
+  "metadata": {
+    "duration": 120,
+    "resolution": "1920x1080",
+    "original_codec": "h264"
+  }
+}
+```
+
+#### Start Encoding
+```http
+POST /api/encode/start/<encode_id>
+Authorization: Bearer <private_token>
+Content-Type: application/json
+
+{
+  "video_codec": "h264",  // Options: h264, h265, av1
+  "quality_preset": "high"  // Options: lossless, high, medium
+}
+
+Response:
+{
+  "message": "Video encoded successfully",
+  "encode_id": "...",
+  "file_size_mb": 38.5
+}
+```
+
+#### Get Encoding Status
+```http
+GET /api/encode/status/<encode_id>
+Authorization: Bearer <private_token>
+
+Response:
+{
+  "encode_id": "...",
+  "status": "completed",
+  "progress": 100,
+  "video_codec": "h264",
+  "quality_preset": "high",
+  "file_available": true
+}
+```
+
+#### Download Encoded Video
+```http
+POST /api/encode/download/<encode_id>
+Authorization: Bearer <private_token>
+
+Response: Video file (MP4)
+```
+
+#### Get Supported Codecs
+```http
+GET /api/encode/codecs
+
+Response:
+{
+  "codecs": {
+    "h264": ["lossless", "high", "medium"],
+    "h265": ["lossless", "high", "medium"],
+    "av1": ["lossless", "high", "medium"]
+  }
 }
 ```
 

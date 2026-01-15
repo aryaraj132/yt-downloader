@@ -34,14 +34,23 @@ class CleanupService:
             for video in expired_videos:
                 video_id = str(video['_id'])
                 file_path = video.get('file_path')
+                input_file_path = video.get('input_file_path')
                 
-                # Delete file from filesystem
+                # Delete output file from filesystem
                 if file_path and os.path.exists(file_path):
                     try:
                         os.remove(file_path)
                         logger.info(f"Deleted expired video file: {file_path}")
                     except OSError as e:
                         logger.error(f"Failed to delete file {file_path}: {str(e)}")
+                
+                # Delete input file from filesystem (for uploaded videos)
+                if input_file_path and os.path.exists(input_file_path):
+                    try:
+                        os.remove(input_file_path)
+                        logger.info(f"Deleted expired input file: {input_file_path}")
+                    except OSError as e:
+                        logger.error(f"Failed to delete input file {input_file_path}: {str(e)}")
                 
                 # Update database to remove file_path
                 from src.services.db_service import get_database
@@ -52,6 +61,7 @@ class CleanupService:
                     {
                         '$set': {
                             'file_path': None,
+                            'input_file_path': None,
                             'status': 'expired'
                         }
                     }

@@ -70,3 +70,22 @@ htmlcov/
 # Database
 *.db
 *.sqlite
+
+# Video files (all formats)
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.flv
+*.wmv
+*.webm
+*.m4v
+*.mpg
+*.mpeg
+*.3gp
+*.ts
+*.mts
+*.m2ts
+*.vob
+*.ogv
+*.gifv

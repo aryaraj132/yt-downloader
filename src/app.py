@@ -6,6 +6,7 @@ from flask_cors import CORS
 from src.config import Config, setup_logging
 from src.routes.auth import auth_bp
 from src.routes.video import video_bp
+from src.routes.encode import encode_bp
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ def create_app():
     
     # Configuration
     app.config['SECRET_KEY'] = Config.FLASK_SECRET_KEY
-    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max request size
+    app.config['MAX_CONTENT_LENGTH'] = Config.MAX_UPLOAD_SIZE_MB * 1024 * 1024  # Max upload size
     
     # CORS configuration
     CORS(app, resources={
@@ -35,6 +36,7 @@ def create_app():
     # Register blueprints
     app.register_blueprint(auth_bp)
     app.register_blueprint(video_bp)
+    app.register_blueprint(encode_bp)
     
     # Health check endpoint
     @app.route('/health', methods=['GET'])
@@ -54,6 +56,7 @@ def create_app():
             'endpoints': {
                 'auth': '/api/auth',
                 'video': '/api/video',
+                'encode': '/api/encode',
                 'health': '/health'
             }
         }), 200
