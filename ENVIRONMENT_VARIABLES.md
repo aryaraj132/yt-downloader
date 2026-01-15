@@ -144,6 +144,29 @@ This document lists all environment variables required to run the YouTube Video 
 - **Description**: Path to application log file
 - **Note**: Ensure the logs directory exists and has write permissions
 
+## Video Download Preferences
+
+### `DEFAULT_VIDEO_FORMAT`
+- **Type**: String
+- **Required**: No
+- **Default**: `mp4`
+- **Options**: `mp4`, `webm`, `mkv`, `flv`, `avi`, `m4a`, `mp3`, `ogg`, `wav`, `best`
+- **Description**: Default video format for downloads when not specified by user
+
+### `DEFAULT_VIDEO_RESOLUTION`
+- **Type**: String
+- **Required**: No
+- **Default**: `best`
+- **Options**: `best`, `worst`, `2160p`, `1440p`, `1080p`, `720p`, `480p`, `360p`, `240p`, `144p`, `4320p`
+- **Description**: Default video resolution for downloads when not specified by user
+
+### `YOUTUBE_API_KEY`
+- **Type**: String
+- **Required**: No
+- **Default**: Empty
+- **Description**: YouTube Data API v3 key for fetching video metadata (optional feature)
+- **Note**: Only needed if you want to use YouTube API for metadata fetching. Most features work without it using yt-dlp.
+
 ## Quick Setup Example
 
 ```bash

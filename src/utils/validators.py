@@ -131,3 +131,92 @@ def sanitize_filename(filename: str) -> str:
         sanitized = sanitized[:max_length]
     
     return sanitized or 'video'
+
+
+def validate_video_id(video_id: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate YouTube video ID format.
+    
+    Args:
+        video_id: Video ID to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not video_id:
+        return False, "Video ID is required"
+    
+    if not isinstance(video_id, str):
+        return False, "Video ID must be a string"
+    
+    # YouTube video IDs are 11 characters: alphanumeric, underscore, hyphen
+    pattern = r'^[a-zA-Z0-9_-]{11}$'
+    
+    if not re.match(pattern, video_id):
+        return False, "Invalid video ID format"
+    
+    return True, None
+
+
+def validate_format_preference(format_pref: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate video format preference.
+    
+    Args:
+        format_pref: Preferred video format
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not format_pref:
+        return True, None  # Format is optional
+    
+    # Supported formats for yt-dlp
+    supported_formats = [
+        'mp4', 'webm', 'mkv', 'flv', 'avi', 
+        'm4a', 'mp3', 'ogg', 'wav', 'best'
+    ]
+    
+    format_lower = format_pref.lower()
+    
+    if format_lower not in supported_formats:
+        return False, f"Unsupported format. Supported formats: {', '.join(supported_formats)}"
+    
+    return True, None
+
+
+def validate_resolution_preference(resolution: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate video resolution preference.
+    
+    Args:
+        resolution: Preferred resolution (e.g., "1080p", "720p", "best")
+        
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not resolution:
+        return True, None  # Resolution is optional
+    
+    # Common resolution options
+    supported_resolutions = [
+        'best', 'worst',
+        '2160p', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p',
+        '4320p',  # 8K
+    ]
+    
+    resolution_lower = resolution.lower()
+    
+    # Check if it's a supported resolution string
+    if resolution_lower in supported_resolutions:
+        return True, None
+    
+    # Check if it's a custom height value (e.g., "1080" or "720")
+    if resolution.isdigit():
+        height = int(resolution)
+        if 144 <= height <= 4320:
+            return True, None
+        return False, "Resolution height must be between 144 and 4320"
+    
+    return False, f"Unsupported resolution. Examples: {', '.join(supported_resolutions[:8])}"
+

@@ -58,6 +58,16 @@ class Config:
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
     LOG_FILE = os.getenv('LOG_FILE', './logs/app.log')
     
+    # Video Download Preferences
+    DEFAULT_VIDEO_FORMAT = os.getenv('DEFAULT_VIDEO_FORMAT', 'mp4')
+    DEFAULT_VIDEO_RESOLUTION = os.getenv('DEFAULT_VIDEO_RESOLUTION', 'best')
+    SUPPORTED_FORMATS = ['mp4', 'webm', 'mkv', 'flv', 'avi', 'm4a', 'mp3', 'ogg', 'wav', 'best']
+    SUPPORTED_RESOLUTIONS = ['best', 'worst', '2160p', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p', '4320p']
+    
+    # YouTube API (Optional - for metadata fetching if needed)
+    YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY', '')  # Optional
+
+    
     @classmethod
     def validate(cls):
         """Validate that all required configuration values are set."""

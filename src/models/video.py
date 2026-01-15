@@ -23,7 +23,16 @@ class Video:
     """Video model for managing download requests."""
     
     @staticmethod
-    def create_video_info(user_id: str, url: str, start_time: int, end_time: int) -> Optional[str]:
+    def create_video_info(
+        user_id: str, 
+        url: str, 
+        start_time: int, 
+        end_time: int,
+        additional_message: Optional[str] = None,
+        format_preference: Optional[str] = None,
+        resolution_preference: Optional[str] = None,
+        clip_offset: Optional[int] = None
+    ) -> Optional[str]:
         """
         Create a new video download request.
         
@@ -32,6 +41,10 @@ class Video:
             url: YouTube video URL
             start_time: Start time in seconds
             end_time: End time in seconds
+            additional_message: Optional message/description for the video clip
+            format_preference: Preferred video format (e.g., 'mp4', 'webm')
+            resolution_preference: Preferred resolution (e.g., '1080p', '720p', 'best')
+            clip_offset: For live stream clips, offset from timestamp
             
         Returns:
             Video ID as string if successful, None otherwise
@@ -51,7 +64,11 @@ class Video:
                 'expires_at': None,  # Will be set after download completes
                 'error_message': None,
                 'source_type': 'youtube',  # 'youtube' or 'upload'
-                'encoding_progress': 0
+                'encoding_progress': 0,
+                'additional_message': additional_message,
+                'format_preference': format_preference or Config.DEFAULT_VIDEO_FORMAT,
+                'resolution_preference': resolution_preference or Config.DEFAULT_VIDEO_RESOLUTION,
+                'clip_offset': clip_offset
             }
             
             result = db.videos.insert_one(video_doc)
@@ -61,6 +78,7 @@ class Video:
         except Exception as e:
             logger.error(f"Failed to create video info: {str(e)}")
             return None
+
     
     @staticmethod
     def find_by_id(video_id: str) -> Optional[Dict]:

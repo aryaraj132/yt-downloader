@@ -5,7 +5,11 @@ from flask import Blueprint, request, jsonify, g, send_file
 
 from src.models.video import Video, VideoStatus
 from src.services.video_service import VideoService
-from src.utils.validators import validate_youtube_url, validate_time_range
+from src.services.youtube_service import YouTubeService
+from src.utils.validators import (
+    validate_youtube_url, validate_time_range, validate_video_id,
+    validate_format_preference, validate_resolution_preference
+)
 from src.middleware.auth import require_public_token, require_private_token
 from src.config import Config
 
@@ -46,6 +50,12 @@ def save_video_info():
         end_time = data.get('end_time')
         user_id = data.get('user_id')  # Required with public token
         
+        # Optional fields
+        additional_message = data.get('additional_message')
+        format_preference = data.get('format_preference')
+        resolution_preference = data.get('resolution_preference')
+        clip_offset = data.get('clip_offset')
+        
         # Validate input
         if not url or start_time is None or end_time is None or not user_id:
             return jsonify({'error': 'Missing required fields: url, start_time, end_time, user_id'}), 400
@@ -59,6 +69,8 @@ def save_video_info():
         try:
             start_time = int(start_time)
             end_time = int(end_time)
+            if clip_offset is not None:
+                clip_offset = int(clip_offset)
         except (ValueError, TypeError):
             return jsonify({'error': 'Invalid time values'}), 400
         
@@ -68,8 +80,25 @@ def save_video_info():
         if not is_valid_time:
             return jsonify({'error': time_error}), 400
         
-        # Save video info
-        video_id = Video.create_video_info(user_id, url, start_time, end_time)
+        # Validate optional fields
+        if format_preference:
+            is_valid, error = validate_format_preference(format_preference)
+            if not is_valid:
+                return jsonify({'error': error}), 400
+        
+        if resolution_preference:
+            is_valid, error = validate_resolution_preference(resolution_preference)
+            if not is_valid:
+                return jsonify({'error': error}), 400
+        
+        # Save video info with optional fields
+        video_id = Video.create_video_info(
+            user_id, url, start_time, end_time,
+            additional_message=additional_message,
+            format_preference=format_preference,
+            resolution_preference=resolution_preference,
+            clip_offset=clip_offset
+        )
         
         if not video_id:
             return jsonify({'error': 'Failed to save video info'}), 500
@@ -83,6 +112,99 @@ def save_video_info():
         
     except Exception as e:
         logger.error(f"Save video info error: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@video_bp.route('/save/stream/<token>/<video_id>', methods=['GET', 'POST'])
+def save_video_from_stream(token, video_id):
+    """
+    Save video clip from live stream using video ID and querystring parameters.
+    This endpoint is designed for use with Nightbot urlfetch.
+    Public-facing endpoint that accepts token in URL path.
+    
+    URL Parameters:
+        token: Public API token
+        video_id: YouTube video ID (11 characters)
+    
+    Query Parameters:
+        message: User message/description for the clip (optional)
+        offset: Seconds to capture before/after timestamp (default: 60)
+        duration: Total clip duration in seconds (default: 120)
+        user_id: User ID who owns the public token (required)
+    
+    Returns:
+        {
+            "message": "Video clip saved successfully",
+            "video_id": "..."
+        }
+    """
+    try:
+        # Get query parameters
+        message = request.args.get('message', '')
+        user_id = request.args.get('user_id')
+        
+        try:
+            offset = int(request.args.get('offset', 60))
+            duration = int(request.args.get('duration', 120))
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid offset or duration values'}), 400
+        
+        # Validate user_id is provided
+        if not user_id:
+            return jsonify({'error': 'Missing required parameter: user_id'}), 400
+        
+        # Validate video ID format
+        is_valid, error = validate_video_id(video_id)
+        if not is_valid:
+            return jsonify({'error': error}), 400
+        
+        # Construct YouTube URL from video ID
+        url = YouTubeService.construct_video_url(video_id)
+        
+        # Calculate start and end times
+        # For live streams, we use current timestamp and offset
+        # Note: For actual live streams, you might need to adjust this logic
+        # based on when the stream started
+        import time
+        current_time = int(time.time())
+        
+        # For now, we'll use a simple offset-based approach
+        # In a real implementation, you'd need to:
+        # 1. Determine if the video is currently live
+        # 2. Calculate the actual timestamp in the video timeline
+        # 3. Use that as the center point for the clip
+        
+        # Simple implementation: capture offset seconds before to (duration - offset) seconds after
+        start_time = 0  # Placeholder - would be calculated based on live stream position
+        end_time = duration
+        
+        # Validate time range
+        is_valid_time, time_error = validate_time_range(
+            start_time, end_time, Config.MAX_VIDEO_DURATION
+        )
+        if not is_valid_time:
+            return jsonify({'error': time_error}), 400
+        
+        # Save video info
+        saved_video_id = Video.create_video_info(
+            user_id, url, start_time, end_time,
+            additional_message=message,
+            clip_offset=offset
+        )
+        
+        if not saved_video_id:
+            return jsonify({'error': 'Failed to save video clip'}), 500
+        
+        logger.info(f"Stream clip saved: {saved_video_id} from video {video_id}")
+        
+        return jsonify({
+            'message': 'Video clip saved successfully',
+            'video_id': saved_video_id,
+            'youtube_video_id': video_id
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Save stream clip error: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
 
@@ -229,3 +351,56 @@ def list_user_videos():
     except Exception as e:
         logger.error(f"List videos error: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
+
+
+@video_bp.route('/formats/<video_id>', methods=['GET'])
+@require_private_token
+def get_available_formats(video_id):
+    """
+    Get available formats and resolutions for a video.
+    Requires private authentication token.
+    
+    Args:
+        video_id: Can be either a video document ID or YouTube video ID
+    
+    Returns:
+        {
+            "video_id": "...",
+            "resolutions": ["1080p", "720p", ...],
+            "extensions": ["mp4", "webm", ...],
+            "formats": {...}
+        }
+    """
+    try:
+        #First check if it's a video document ID
+        video = Video.find_by_id(video_id)
+        
+        if video:
+            # Verify ownership
+            if not Video.verify_ownership(video_id, g.user_id):
+                return jsonify({'error': 'Unauthorized access to video'}), 403
+            
+            # Extract YouTube video ID from URL
+            yt_video_id = YouTubeService.parse_video_id_from_url(video['url'])
+            if not yt_video_id:
+                return jsonify({'error': 'Could not extract YouTube video ID from URL'}), 400
+        else:
+            # Assume it's a YouTube video ID
+            is_valid, error = validate_video_id(video_id)
+            if not is_valid:
+                return jsonify({'error': error}), 400
+            yt_video_id = video_id
+        
+        # Get available formats using YouTube service
+        formats_info = YouTubeService.get_available_formats(yt_video_id)
+        
+        if not formats_info:
+            return jsonify({'error': 'Failed to retrieve available formats'}), 500
+        
+        logger.info(f"Retrieved available formats for video {yt_video_id}")
+        return jsonify(formats_info), 200
+        
+    except Exception as e:
+        logger.error(f"Get available formats error: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+

@@ -73,8 +73,13 @@ class VideoService:
             start_time = video['start_time']
             end_time = video['end_time']
             
-            # Generate unique filename
-            filename = f"{uuid.uuid4().hex}_{int(datetime.utcnow().timestamp())}.mp4"
+            # Get format and resolution preferences
+            format_pref = video.get('format_preference', Config.DEFAULT_VIDEO_FORMAT)
+            resolution_pref = video.get('resolution_preference', Config.DEFAULT_VIDEO_RESOLUTION)
+            
+            # Generate unique filename with preferred extension
+            file_ext = format_pref if format_pref != 'best' else 'mp4'
+            filename = f"{uuid.uuid4().hex}_{int(datetime.utcnow().timestamp())}.{file_ext}"
             output_path = os.path.join(Config.DOWNLOADS_DIR, filename)
             
             # Ensure downloads directory exists
@@ -83,13 +88,16 @@ class VideoService:
             # Calculate duration for segment
             duration = end_time - start_time
             
+            # Build format selection string for yt-dlp
+            # This respects both resolution and format preferences
+            format_string = VideoService._build_format_string(resolution_pref, format_pref)
+            
             # Build yt-dlp command
-            # Format: download video with h264 codec and aac audio, extract segment
             cmd = [
                 'yt-dlp',
                 url,
-                '-f', 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                '--merge-output-format', 'mp4',
+                '-f', format_string,
+                '--merge-output-format', file_ext,
                 '--download-sections', f'*{start_time}-{end_time}',
                 '-o', output_path,
                 '--no-playlist',
@@ -103,7 +111,7 @@ class VideoService:
                 cmd.insert(4, '--ffmpeg-location')
                 cmd.insert(5, FFMPEG_LOCATION)
             
-            logger.info(f"Starting video download: {url} ({start_time}-{end_time}s)")
+            logger.info(f"Starting video download: {url} ({start_time}-{end_time}s) format={format_pref} resolution={resolution_pref}")
             
             # Execute yt-dlp
             result = subprocess.run(
@@ -143,6 +151,52 @@ class VideoService:
             logger.error(f"Video download error: {error_msg}")
             Video.update_status(video_id, VideoStatus.FAILED, error_message=error_msg)
             return False, None, error_msg
+    
+    @staticmethod
+    def _build_format_string(resolution: str, format_ext: str) -> str:
+        """
+        Build yt-dlp format selection string based on preferences.
+        
+        Args:
+            resolution: Preferred resolution (e.g., '1080p', '720p', 'best')
+            format_ext: Preferred format extension (e.g., 'mp4', 'webm', 'best')
+            
+        Returns:
+            Format string for yt-dlp -f parameter
+        """
+        # Handle special cases
+        if resolution == 'best' and format_ext == 'best':
+            return 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+        
+        if resolution == 'best':
+            if format_ext == 'mp4':
+                return 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+            else:
+                return f'bestvideo[ext={format_ext}]+bestaudio/best[ext={format_ext}]/best'
+        
+        # Extract height from resolution (e.g., '1080p' -> 1080)
+        if resolution.endswith('p'):
+            try:
+                height = int(resolution[:-1])
+            except ValueError:
+                height = None
+        elif resolution.isdigit():
+            height = int(resolution)
+        else:
+            height = None
+        
+        # Build format string with resolution constraint
+        if height:
+            if format_ext == 'mp4':
+                return f'bestvideo[height<={height}][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[height<={height}][ext=mp4]/best'
+            elif format_ext == 'best':
+                return f'bestvideo[height<={height}]+bestaudio/best[height<={height}]'
+            else:
+                return f'bestvideo[height<={height}][ext={format_ext}]+bestaudio/best[height<={height}][ext={format_ext}]/best'
+        
+        # Fallback
+        return 'bestvideo+bestaudio/best'
+
     
     @staticmethod
     def get_video_info(url: str) -> Optional[Dict]:

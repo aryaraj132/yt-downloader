@@ -41,3 +41,14 @@ ask for video encoding H.264, H.265, AV1, audio encoding aac so that we convert 
 Note: We do not reduce any quality and conversion should be almost lossless
 
 Inspired by: https://cloudconvert.com/
+
+## Itteration 3 feature:
+
+Add an api exposed to public, which accepts youtube live chat id and user's public token, using chat id we will determine the url of live video as well as the timestamp of that chat in respect to the video length(i.e., after how many seconds of the live stream the chat was made) using this value we will use save the data(url, start time, end time, additional message sent to be saved against the user whose public token is used) of this video to be downloaded later on. mainly this will be used to download the video from the point where the chat was made. 
+
+We will use this api in nightbot like this `$(urlfetch https://${endpoint}/api/video/save/stream/${token}/$(chatid)/$(querystring))`
+documentation: https://docs.nightbot.tv/variables/chatid , https://docs.nightbot.tv/variables/querystring
+
+
+
+Add a feature to download the video in different formats and resolutions.
