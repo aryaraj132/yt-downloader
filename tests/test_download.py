@@ -37,9 +37,9 @@ def timestamp_to_seconds(timestamp):
 
 
 # Test parameters
-TEST_URL = "https://www.youtube.com/live/fRdMGjcqczM"
-START_TIME_STR = "1:14:45"  # Can use format like "1:44:00" or "0:1:30"
-END_TIME_STR = "3:12:40"    # Automatically converts to seconds
+TEST_URL = "https://www.youtube.com/watch?v=5135omtMu40"
+START_TIME_STR = "1:08:57"   # Can use format like "1:44:00" or "0:1:30"
+END_TIME_STR = "1:10:27"   # Automatically converts to seconds
 START_TIME = timestamp_to_seconds(START_TIME_STR)
 END_TIME = timestamp_to_seconds(END_TIME_STR)
 TIMEOUT = max(300, END_TIME - START_TIME * 2)
@@ -104,8 +104,8 @@ def test_download(ffmpeg_dir):
     cmd = [
         sys.executable, '-m', 'yt_dlp',
         TEST_URL,
-        '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
-        '--merge-output-format', 'mp4',
+        '-f', 'bestvideo[ext=webm]+bestaudio[ext=webm]/best[ext=webm]',
+        '--merge-output-format', 'webm',
         '--download-sections', f'*{START_TIME}-{END_TIME}',
         '-o', OUTPUT_PATH,
         '--no-playlist',
