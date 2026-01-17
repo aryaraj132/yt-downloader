@@ -145,7 +145,7 @@ def download_segment(url, start_time_str, end_time_str, extension, output_path, 
         return False
 
 
-def encode_video_with_progress(ffmpeg_path, input_path, output_path, codec='h264', quality='lossless'):
+def encode_video_with_progress(input_path, output_path, codec='h264', quality='lossless'):
     """Encode video using EncodingService with console progress display."""
     
     print("\n" + "=" * 70)
@@ -154,22 +154,6 @@ def encode_video_with_progress(ffmpeg_path, input_path, output_path, codec='h264
     print(f"Input: {input_path}")
     print(f"Output: {output_path}")
     print(f"Codec: {codec}, Quality: {quality}")
-    
-    # Get duration for progress tracking
-    duration = ffmpeg_utils_service.get_video_duration(ffmpeg_path, input_path)
-    
-    if duration:
-        print(f"Duration: {int(duration//60)}:{int(duration%60):02d}")
-    else:
-        print(f"Duration: Unknown (will show alternative progress indicators)")
-    
-    # Detect GPU
-    gpu_encoder, gpu_type = ffmpeg_utils_service.detect_gpu_encoder(ffmpeg_path, codec)
-    if gpu_encoder:
-        print(f"🚀 GPU Acceleration: {gpu_type} ({gpu_encoder})")
-    else:
-        print(f"💻 Using CPU encoder")
-    
     print("\nEncoding in progress...\n")
     
     # Progress tracking variables
@@ -180,14 +164,12 @@ def encode_video_with_progress(ffmpeg_path, input_path, output_path, codec='h264
     
     def progress_callback(data):
         """Display progress to console."""
-        nonlocal last_update, spinner_idx
-        
         now = time.time()
         if now - last_update[0] < 0.5:  # Throttle display updates
             return
         last_update[0] = now
         
-        if 'percent' in data and duration:
+        if 'percent' in data:
             # Progress bar mode
             percent = data.get('percent', 0)
             eta = data.get('eta', '??:??')
@@ -219,13 +201,13 @@ def encode_video_with_progress(ffmpeg_path, input_path, output_path, codec='h264
                   end='', flush=True)
     
     try:
-        # Use EncodingService to encode
+        # Use EncodingService - it handles ALL logic (GPU, duration, etc.)
         success, error = EncodingService.encode_video_to_mp4(
             input_path,
             output_path,
             video_codec=codec,
             quality_preset=quality,
-            use_gpu=True,
+            use_gpu=True,  # Service decides if GPU is available
             encode_id=None,
             progress_callback=progress_callback
         )
@@ -258,7 +240,7 @@ def main():
     # Configuration - MODIFY THESE VALUES
     VIDEO_URL = "https://www.youtube.com/watch?v=fRdMGjcqczM"
     START_TIME = "1:14:44"  # hr:min:sec format
-    END_TIME = "3:12:21"
+    END_TIME = "1:22:21"
     # EXTENSION = 'mp4'
     EXTENSION = ''
     
@@ -272,7 +254,7 @@ def main():
     QUALITY = 'lossless'
     
     # Set to True to only encode an existing file (skips download)
-    ONLY_ENCODE = True
+    ONLY_ENCODE = False
     
     # Setup paths
     script_dir = Path(__file__).parent
