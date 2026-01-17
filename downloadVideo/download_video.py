@@ -100,7 +100,7 @@ def detect_gpu_encoder(ffmpeg_path, codec='h264'):
     encoders_to_test = []
     
     if codec == 'h264':
-        # Test in order: AMD → NVIDIA → Intel (prioritize AMD for user's system)
+        # Test in order: AMD → NVIDIA → Intel
         encoders_to_test = [
             ('h264_amf', 'AMD'),
             ('h264_nvenc', 'NVIDIA'),
@@ -111,6 +111,12 @@ def detect_gpu_encoder(ffmpeg_path, codec='h264'):
             ('hevc_amf', 'AMD'),
             ('hevc_nvenc', 'NVIDIA'),
             ('hevc_qsv', 'Intel QuickSync'),
+        ]
+    elif codec == 'av1':
+        encoders_to_test = [
+            ('av1_amf', 'AMD RDNA 3+'),
+            ('av1_nvenc', 'NVIDIA RTX 40-series'),
+            ('av1_qsv', 'Intel Arc'),
         ]
     
     # Test each encoder by trying to encode a dummy frame
@@ -218,7 +224,7 @@ def setup_ffmpeg():
 
 
 def download_segment(ffmpeg_dir, url, start_time_str, end_time_str, extension, output_path, final_path):
-    """Download a segment from YouTube video."""
+    """Download a segment from YouTube video with progress bar."""
     print("\n" + "=" * 70)
     print("Step 1: Downloading YouTube Video Segment")
     print("=" * 70)
@@ -234,8 +240,6 @@ def download_segment(ffmpeg_dir, url, start_time_str, end_time_str, extension, o
     duration = end_time - start_time
     path = final_path if extension == 'mp4' else output_path
     
-    
-    
     print(f"URL: {url}")
     print(f"Segment: {start_time_str} to {end_time_str} ({duration} seconds)")
     print(f"Output: {path}\n")
@@ -247,47 +251,97 @@ def download_segment(ffmpeg_dir, url, start_time_str, end_time_str, extension, o
     env = os.environ.copy()
     env['PATH'] = ffmpeg_dir + os.pathsep + env.get('PATH', '')
     
-    # Download command - choose format based on extension
+    # Download command with progress template
+    base_cmd = [
+        sys.executable, '-m', 'yt_dlp',
+        url,
+        '--download-sections', f'*{start_time}-{end_time}',
+        '-o', path,
+        '--no-playlist',
+        '--newline',  # Progress on separate lines for easier parsing
+        '--progress',  # Show progress
+    ]
+    
+    # Add format selection based on extension
     if extension == 'mp4':
-        # For MP4: Use more flexible format selection to work with YouTube SABR streaming
-        # This allows any video + audio that can be merged to MP4
-        cmd = [
-            sys.executable, '-m', 'yt_dlp',
-            url,
+        cmd = base_cmd + [
             '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
             '--merge-output-format', 'mp4',
-            '--download-sections', f'*{start_time}-{end_time}',
-            '-o', path,
-            '--no-playlist',
         ]
     else:
-        # For WebM: Use WebM-specific formats
-        cmd = [
-            sys.executable, '-m', 'yt_dlp',
-            url,
+        cmd = base_cmd + [
             '-f', 'bestvideo[ext=webm]+bestaudio[ext=webm]/best[ext=webm]',
             '--merge-output-format', 'webm',
-            '--download-sections', f'*{start_time}-{end_time}',
-            '-o', path,
-            '--no-playlist',
         ]
     
-    print("Starting download...\n")
-    print("-" * 70)
+    print("Downloading...\n")
     
     try:
-        timeout = max(300, duration * 2)
-        result = subprocess.run(cmd, env=env, timeout=timeout)
+        # Run yt-dlp with real-time progress monitoring
+        process = subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1
+        )
         
-        print("-" * 70)
+        last_update = time.time()
+        current_phase = "Initializing"
         
-        if result.returncode != 0:
-            print(f"\n❌ Download failed (exit code {result.returncode})")
+        for line in process.stdout:
+            line = line.strip()
+            
+            # Parse download progress
+            # yt-dlp outputs: [download]  45.2% of ~123.45MiB at 2.34MiB/s ETA 00:45
+            if '[download]' in line and '%' in line:
+                now = time.time()
+                # Throttle updates to every 0.3 seconds
+                if now - last_update >= 0.3:
+                    last_update = now
+                    
+                    # Extract progress info
+                    percent_match = re.search(r'(\d+\.\d+)%', line)
+                    size_match = re.search(r'of\s+~?(\S+)', line)
+                    speed_match = re.search(r'at\s+(\S+/s)', line)
+                    eta_match = re.search(r'ETA\s+(\S+)', line)
+                    
+                    if percent_match:
+                        percent = float(percent_match.group(1))
+                        size_info = size_match.group(1) if size_match else "unknown"
+                        speed = speed_match.group(1) if speed_match else "?"
+                        eta = eta_match.group(1) if eta_match else "?"
+                        
+                        # Create progress bar
+                        bar_width = 40
+                        filled = int(bar_width * percent / 100)
+                        bar = '█' * filled + '░' * (bar_width - filled)
+                        
+                        print(f"\r[{bar}] {percent:.1f}% of {size_info} | {speed} | ETA: {eta}", end='', flush=True)
+            
+            # Show phase changes
+            elif '[download]' in line and 'Destination:' in line:
+                current_phase = "Downloading"
+            elif '[Merger]' in line or 'Merging' in line.lower():
+                print()  # New line after progress
+                print("Merging video and audio streams...")
+                current_phase = "Merging"
+            elif 'Deleting original file' in line:
+                if current_phase == "Merging":
+                    print("✓ Merge complete")
+        
+        # Wait for process to complete
+        process.wait()
+        print()  # New line after progress
+        
+        if process.returncode != 0:
+            print(f"\n❌ Download failed (exit code {process.returncode})")
             return False
         
         if os.path.exists(path):
             size_mb = os.path.getsize(path) / (1024*1024)
-            print(f"✅ Download successful!")
+            print(f"\n✅ Download successful!")
             print(f"   File: {os.path.abspath(path)}")
             print(f"   Size: {size_mb:.2f} MB\n")
             return True
@@ -300,6 +354,8 @@ def download_segment(ffmpeg_dir, url, start_time_str, end_time_str, extension, o
         return False
     except Exception as e:
         print(f"❌ Download error: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -360,6 +416,12 @@ def encode_video(ffmpeg_path, input_path, output_path, codec='h264', quality='lo
                 video_settings = ['-c:v', gpu_encoder, '-preset', 'veryslow', '-global_quality', '18']
             else:
                 video_settings = ['-c:v', gpu_encoder, '-preset', 'medium', '-global_quality', '23']
+        elif 'av1' in gpu_encoder:
+            # AV1 GPU settings (NVIDIA/AMD/Intel)
+            if quality == 'lossless':
+                video_settings = ['-c:v', gpu_encoder, '-cq', '18', '-b:v', '0']
+            else:
+                video_settings = ['-c:v', gpu_encoder, '-cq', '23', '-b:v', '0']
         else:
             # Fallback to CPU
             gpu_encoder = None
@@ -375,7 +437,16 @@ def encode_video(ffmpeg_path, input_path, output_path, codec='h264', quality='lo
                 'lossless': ['-c:v', 'libx265', '-crf', '20', '-preset', 'slow'],
                 'high': ['-c:v', 'libx265', '-crf', '25', '-preset', 'medium'],
             },
+            # Note: AV1 CPU encoding (libsvtav1) is not included due to extreme slowness
+            # If AV1 is requested but GPU not available, fallback to H.265
         }
+        
+        # Fallback AV1 to H.265 if no GPU support
+        if codec == 'av1':
+            print("⚠️  AV1 GPU encoder not available")
+            print("   Falling back to H.265 (CPU AV1 encoding is too slow)\n")
+            codec = 'h265'
+        
         video_settings = codec_settings[codec][quality]
     
     # Build complete FFmpeg command
@@ -588,9 +659,17 @@ def main():
     END_TIME = "3:12:21"
     # EXTENSION = 'mp4'
     EXTENSION = ''
-    # Optional: Change codec ('h264' or 'h265') and quality ('lossless' or 'high')
+    
+    # Codec options: 'h264', 'h265', or 'av1'
+    # - h264: Fast, universal compatibility (recommended for most use cases)
+    # - h265: Better compression than h264, slower encoding
+    # - av1: Best compression (30-50% smaller), slowest encoding, requires newer hardware for playback
     CODEC = 'h264'
+    
+    # Quality options: 'lossless' or 'high'
     QUALITY = 'lossless'
+    
+    # Set to True to only encode an existing file (skips download)
     ONLY_ENCODE = True
     
     # Setup paths
