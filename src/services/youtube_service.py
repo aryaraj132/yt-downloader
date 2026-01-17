@@ -155,24 +155,26 @@ class YouTubeService:
             return None
     
     @staticmethod
-    def get_available_formats(video_id: str) -> Optional[Dict]:
+    def get_available_formats(video_id: str) -> Optional[list]:
         """
-        Get available formats and resolutions for a video.
+        Get available high-quality resolutions (720p and above) for a video.
         
         Args:
             video_id: YouTube video ID
             
         Returns:
-            Dictionary with available formats grouped by resolution
+            List of available resolutions (e.g., ["1440p", "1080p", "720p"]) or None if failed
         """
         try:
+            import sys
             url = YouTubeService.construct_video_url(video_id)
             
-            # Use yt-dlp to list formats
+            # Use yt-dlp to get video info with formats
             cmd = [
-                'yt-dlp',
-                '--list-formats',
+                sys.executable, '-m', 'yt_dlp',
                 '--dump-json',
+                '--no-warnings',
+                '--skip-download',
                 url
             ]
             
@@ -191,39 +193,21 @@ class YouTubeService:
             info = json.loads(result.stdout)
             formats = info.get('formats', [])
             
-            # Group formats by resolution and extension
-            format_groups = {}
+            # Collect unique resolutions >= 720p
             resolutions = set()
-            extensions = set()
             
             for fmt in formats:
-                ext = fmt.get('ext', 'unknown')
                 height = fmt.get('height')
                 
-                if height:
+                if height and height >= 720:
                     resolution = f"{height}p"
                     resolutions.add(resolution)
-                    extensions.add(ext)
-                    
-                    if resolution not in format_groups:
-                        format_groups[resolution] = []
-                    
-                    format_groups[resolution].append({
-                        'format_id': fmt.get('format_id'),
-                        'ext': ext,
-                        'resolution': resolution,
-                        'vcodec': fmt.get('vcodec', 'none'),
-                        'acodec': fmt.get('acodec', 'none'),
-                        'filesize': fmt.get('filesize'),
-                        'tbr': fmt.get('tbr')  # total bitrate
-                    })
             
-            return {
-                'video_id': video_id,
-                'resolutions': sorted(list(resolutions), key=lambda x: int(x[:-1]), reverse=True),
-                'extensions': sorted(list(extensions)),
-                'formats': format_groups
-            }
+            # Return sorted list (highest first)
+            if resolutions:
+                return sorted(list(resolutions), key=lambda x: int(x[:-1]), reverse=True)
+            else:
+                return None
             
         except Exception as e:
             logger.error(f"Failed to get available formats: {str(e)}")

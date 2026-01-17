@@ -1,155 +1,175 @@
 """Video processing service using yt-dlp."""
 import os
+import sys
 import logging
 import subprocess
-from typing import Optional, Tuple, Dict
+import re
+import time
+from typing import Optional, Tuple, Dict, Callable
 from datetime import datetime
 import uuid
 
 from src.config import Config
 from src.utils.validators import sanitize_filename
 from src.models.video import Video, VideoStatus
+from src.services import ffmpeg_utils_service
 
 logger = logging.getLogger(__name__)
 
-# Setup FFmpeg from local bin directory or imageio-ffmpeg
-def get_ffmpeg_location():
-    """Get FFmpeg binary location."""
-    # First check local bin directory (production)
-    import os
-    from pathlib import Path
-    
-    project_root = Path(__file__).parent.parent.parent
-    bin_dir = project_root / 'bin'
-    ffmpeg_path = bin_dir / ('ffmpeg.exe' if os.name == 'nt' else 'ffmpeg')
-    
-    if ffmpeg_path.exists():
-        logger.info(f"Using FFmpeg from bin directory: {ffmpeg_path}")
-        return str(bin_dir)
-    
-    # Fall back to imageio-ffmpeg
-    try:
-        import imageio_ffmpeg
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        ffmpeg_dir = os.path.dirname(ffmpeg_exe)
-        logger.info(f"Using FFmpeg from imageio-ffmpeg: {ffmpeg_dir}")
-        return ffmpeg_dir
-    except ImportError:
-        logger.warning("FFmpeg not found in bin/ and imageio-ffmpeg not installed")
-        return None
-
-FFMPEG_LOCATION = get_ffmpeg_location()
-
 
 class VideoService:
-    """Service for downloading and processing YouTube videos."""
+    """Service for downloading and processing YouTube videos (pure logic, no database).
+    
+    This service contains only business logic. For database operations, use VideoData layer.
+    \"\"\"
     
     @staticmethod
-    def download_video(video_id: str) -> Tuple[bool, Optional[str], Optional[str]]:
+    def download_video_segment(
+        url: str,
+        start_time: int,
+        end_time: int,
+        output_path: str,
+        format_preference: str = 'webm',
+        resolution_preference: str = 'best',
+        video_id: Optional[str] = None,
+        progress_callback: Optional[Callable[[Dict], None]] = None
+    ) -> Tuple[bool, Optional[str], Optional[str]]:
         """
-        Download video segment using yt-dlp.
+        Download video segment using yt-dlp (database-agnostic).
         
         Args:
-            video_id: Video document ID
+            url: YouTube video URL
+            start_time: Start time in seconds
+            end_time: End time in seconds
+            output_path: Path for output file
+            format_preference: Format (mp4, webm, best)
+            resolution_preference: Resolution (1080p, 720p, best)
+            video_id: Optional video ID for cache storage
+            progress_callback: Optional callback for progress updates
             
         Returns:
             Tuple of (success, file_path, error_message)
         """
         try:
-            # Get video info from database
-            video = Video.find_by_id(video_id)
+            # Ensure output directory exists
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
-            if not video:
-                return False, None, "Video not found"
+            # Get FFmpeg location
+            ffmpeg_path, ffmpeg_dir = ffmpeg_utils_service.get_ffmpeg_path()
+            if not ffmpeg_path or not ffmpeg_dir:
+                return False, None, "FFmpeg not available"
             
-            if video['status'] == VideoStatus.COMPLETED:
-                # Already downloaded
-                return True, video.get('file_path'), None
-            
-            # Update status to processing
-            Video.update_status(video_id, VideoStatus.PROCESSING)
-            
-            url = video['url']
-            start_time = video['start_time']
-            end_time = video['end_time']
-            
-            # Get format and resolution preferences
-            format_pref = video.get('format_preference', Config.DEFAULT_VIDEO_FORMAT)
-            resolution_pref = video.get('resolution_preference', Config.DEFAULT_VIDEO_RESOLUTION)
-            
-            # Generate unique filename with preferred extension
-            file_ext = format_pref if format_pref != 'best' else 'mp4'
-            filename = f"{uuid.uuid4().hex}_{int(datetime.utcnow().timestamp())}.{file_ext}"
-            output_path = os.path.join(Config.DOWNLOADS_DIR, filename)
-            
-            # Ensure downloads directory exists
-            os.makedirs(Config.DOWNLOADS_DIR, exist_ok=True)
-            
-            # Calculate duration for segment
-            duration = end_time - start_time
-            
-            # Build format selection string for yt-dlp
-            # This respects both resolution and format preferences
-            format_string = VideoService._build_format_string(resolution_pref, format_pref)
+            # Build format selection string
+            format_string = VideoService._build_format_string(resolution_preference, format_preference)
             
             # Build yt-dlp command
             cmd = [
-                'yt-dlp',
+                sys.executable, '-m', 'yt_dlp',
                 url,
                 '-f', format_string,
-                '--merge-output-format', file_ext,
+                '--merge-output-format', format_preference if format_preference != 'best' else 'mp4',
                 '--download-sections', f'*{start_time}-{end_time}',
                 '-o', output_path,
                 '--no-playlist',
-                '--no-warnings',
-                '--quiet',
-                '--force-overwrites'
+                '--newline',
+                '--progress',
             ]
             
-            # Add FFmpeg location if available
-            if FFMPEG_LOCATION:
-                cmd.insert(4, '--ffmpeg-location')
-                cmd.insert(5, FFMPEG_LOCATION)
+            # Add FFmpeg location
+            env = os.environ.copy()
+            env['PATH'] = ffmpeg_dir + os.pathsep + env.get('PATH', '')
             
-            logger.info(f"Starting video download: {url} ({start_time}-{end_time}s) format={format_pref} resolution={resolution_pref}")
+            logger.info(f"Starting download: {url} ({start_time}-{end_time}s)")
             
-            # Execute yt-dlp
-            result = subprocess.run(
+            # Execute yt-dlp with progress monitoring
+            process = subprocess.Popen(
                 cmd,
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 minute timeout
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1
             )
             
-            if result.returncode != 0:
-                error_msg = result.stderr or "yt-dlp failed"
-                logger.error(f"yt-dlp error: {error_msg}")
-                Video.update_status(video_id, VideoStatus.FAILED, error_message=error_msg)
+            last_update = 0
+            current_phase = "Initializing"
+            
+            for line in process.stdout:
+                line = line.strip()
+                
+                # Parse download progress
+                if '[download]' in line and '%' in line:
+                    now = time.time()
+                    if now - last_update >= 0.3:
+                        last_update = now
+                        
+                        # Extract progress info
+                        percent_match = re.search(r'(\d+\.\d+)%', line)
+                        size_match = re.search(r'of\s+~?(\S+)', line)
+                        speed_match = re.search(r'at\s+(\S+/s)', line)
+                        eta_match = re.search(r'ETA\s+(\S+)', line)
+                        
+                        if percent_match:
+                            progress_data = {
+                                'percent': float(percent_match.group(1)),
+                                'size': size_match.group(1) if size_match else "unknown",
+                                'speed': speed_match.group(1) if speed_match else "?",
+                                'eta': eta_match.group(1) if eta_match else "?",
+                                'phase': current_phase
+                            }
+                            
+                            # Store in cache if video_id provided
+                            if video_id:
+                                from src.services.progress_cache import ProgressCache
+                                ProgressCache.set_progress(video_id, {
+                                    'download_progress': progress_data['percent'],
+                                    'current_phase': 'downloading',
+                                    'speed': progress_data['speed'],
+                                    'eta': progress_data['eta']
+                                })
+                            
+                            # Call user callback if provided
+                            if progress_callback:
+                                progress_callback(progress_data)
+                
+                # Track phase changes
+                elif '[download]' in line and 'Destination:' in line:
+                    current_phase = "Downloading"
+                elif '[Merger]' in line or 'Merging' in line.lower():
+                    current_phase = "Merging"
+                    if video_id:
+                        from src.services.progress_cache import ProgressCache
+                        ProgressCache.update_field(video_id, 'current_phase', 'merging')
+                    if progress_callback:
+                        progress_callback({'phase': 'Merging', 'percent': 99})
+            
+            # Wait for process to complete
+            process.wait()
+            
+            if process.returncode != 0:
+                error_msg = f"yt-dlp failed (exit code {process.returncode})"
+                logger.error(error_msg)
                 return False, None, error_msg
             
             # Verify file was created
             if not os.path.exists(output_path):
                 error_msg = "Downloaded file not found"
                 logger.error(error_msg)
-                Video.update_status(video_id, VideoStatus.FAILED, error_message=error_msg)
                 return False, None, error_msg
             
-            # Update status to completed
-            Video.update_status(video_id, VideoStatus.COMPLETED, file_path=output_path)
-            
-            logger.info(f"Video downloaded successfully: {output_path}")
+            logger.info(f"Download successful: {output_path}")
             return True, output_path, None
             
         except subprocess.TimeoutExpired:
             error_msg = "Download timeout"
-            logger.error(f"Video download timeout: {video_id}")
-            Video.update_status(video_id, VideoStatus.FAILED, error_message=error_msg)
+            logger.error(f"Download timeout")
             return False, None, error_msg
             
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"Video download error: {error_msg}")
-            Video.update_status(video_id, VideoStatus.FAILED, error_message=error_msg)
+            logger.error(f"Download error: {error_msg}")
+            import traceback
+            traceback.print_exc()
             return False, None, error_msg
     
     @staticmethod
@@ -174,7 +194,7 @@ class VideoService:
             else:
                 return f'bestvideo[ext={format_ext}]+bestaudio/best[ext={format_ext}]/best'
         
-        # Extract height from resolution (e.g., '1080p' -> 1080)
+        # Extract height from resolution
         if resolution.endswith('p'):
             try:
                 height = int(resolution[:-1])
@@ -211,7 +231,7 @@ class VideoService:
         """
         try:
             cmd = [
-                'yt-dlp',
+                sys.executable, '-m', 'yt_dlp',
                 url,
                 '--dump-json',
                 '--no-playlist',

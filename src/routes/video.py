@@ -4,7 +4,7 @@ import os
 from flask import Blueprint, request, jsonify, g, send_file
 
 from src.models.video import Video, VideoStatus
-from src.services.video_service import VideoService
+from src.data import VideoData  # Use data layer
 from src.services.youtube_service import YouTubeService
 from src.utils.validators import (
     validate_youtube_url, validate_time_range, validate_video_id,
@@ -52,8 +52,6 @@ def save_video_info():
         
         # Optional fields
         additional_message = data.get('additional_message')
-        format_preference = data.get('format_preference')
-        resolution_preference = data.get('resolution_preference')
         clip_offset = data.get('clip_offset')
         
         # Validate input
@@ -80,24 +78,23 @@ def save_video_info():
         if not is_valid_time:
             return jsonify({'error': time_error}), 400
         
-        # Validate optional fields
-        if format_preference:
-            is_valid, error = validate_format_preference(format_preference)
-            if not is_valid:
-                return jsonify({'error': error}), 400
+        # Fetch available formats for this video (720p+)
+        try:
+            youtube_video_id = YouTubeService.parse_video_id_from_url(url)
+            if youtube_video_id:
+                available_formats = YouTubeService.get_available_formats(youtube_video_id)
+            else:
+                available_formats = None
+        except Exception as e:
+            logger.warning(f"Could not fetch available formats: {e}")
+            available_formats = None
         
-        if resolution_preference:
-            is_valid, error = validate_resolution_preference(resolution_preference)
-            if not is_valid:
-                return jsonify({'error': error}), 400
-        
-        # Save video info with optional fields
+        # Save video info (without format/resolution - those are download-time choices)
         video_id = Video.create_video_info(
             user_id, url, start_time, end_time,
             additional_message=additional_message,
-            format_preference=format_preference,
-            resolution_preference=resolution_preference,
-            clip_offset=clip_offset
+            clip_offset=clip_offset,
+            available_formats=available_formats  # Store available formats
         )
         
         if not video_id:
@@ -185,11 +182,19 @@ def save_video_from_stream(token, video_id):
         if not is_valid_time:
             return jsonify({'error': time_error}), 400
         
+        # Fetch available formats for this video (720p+)
+        try:
+            available_formats = YouTubeService.get_available_formats(video_id)
+        except Exception as e:
+            logger.warning(f"Could not fetch available formats: {e}")
+            available_formats = None
+        
         # Save video info
         saved_video_id = Video.create_video_info(
             user_id, url, start_time, end_time,
             additional_message=message,
-            clip_offset=offset
+            clip_offset=offset,
+            available_formats=available_formats
         )
         
         if not saved_video_id:
@@ -212,13 +217,35 @@ def save_video_from_stream(token, video_id):
 @require_private_token
 def download_video(video_id):
     """
-    Download video segment.
+    Download video segment with optional format and resolution preferences.
     Requires private authentication token.
+    
+    Request body (optional):
+        {
+            "format_preference": "mp4|webm|best",
+            "resolution_preference": "1080p|720p|best"
+        }
     
     Returns:
         File download or processing status
     """
     try:
+        # Get optional preferences from request body
+        data = request.get_json() or {}
+        format_pref = data.get('format_preference', Config.DEFAULT_VIDEO_FORMAT)
+        resolution_pref = data.get('resolution_preference', Config.DEFAULT_VIDEO_RESOLUTION)
+        
+        # Validate preferences if provided
+        if format_pref != Config.DEFAULT_VIDEO_FORMAT:
+            is_valid, error = validate_format_preference(format_pref)
+            if not is_valid:
+                return jsonify({'error': error}), 400
+        
+        if resolution_pref != Config.DEFAULT_VIDEO_RESOLUTION:
+            is_valid, error = validate_resolution_preference(resolution_pref)
+            if not is_valid:
+                return jsonify({'error': error}), 400
+        
         # Verify video exists
         video = Video.find_by_id(video_id)
         
@@ -256,8 +283,12 @@ def download_video(video_id):
                 'message': video.get('error_message', 'Unknown error')
             }), 500
         
-        # Start download
-        success, file_path, error = VideoService.download_video(video_id)
+        # Start download using data layer with format/resolution preferences
+        success, file_path, error = VideoData.download_video(
+            video_id,
+            format_preference=format_pref,
+            resolution_preference=resolution_pref
+        )
         
         if not success:
             return jsonify({
@@ -283,12 +314,20 @@ def download_video(video_id):
 @require_private_token
 def get_video_status(video_id):
     """
-    Get video processing status.
+    Get video processing status with real-time progress from cache.
     Requires private authentication token.
     
     Returns:
         {
             "status": "pending|processing|completed|failed",
+            "progress": {
+                "download_progress": 0-100,      // When downloading
+                "encoding_progress": 0-100,      // When encoding
+                "current_phase": "downloading|encoding|initializing",
+                "speed": "2.3x",
+                "eta": "03:24",
+                "fps": 45.2
+            },
             "file_path": "...",
             "error_message": "..."
         }
@@ -303,7 +342,7 @@ def get_video_status(video_id):
         if not Video.verify_ownership(video_id, g.user_id):
             return jsonify({'error': 'Unauthorized access to video'}), 403
         
-        return jsonify({
+        response = {
             'video_id': video_id,
             'status': video['status'],
             'url': video['url'],
@@ -311,8 +350,24 @@ def get_video_status(video_id):
             'end_time': video['end_time'],
             'created_at': video['created_at'].isoformat(),
             'file_available': video.get('file_path') is not None and os.path.exists(video.get('file_path', '')),
-            'error_message': video.get('error_message')
-        }), 200
+            'error_message': video.get('error_message'),
+            'available_formats': video.get('available_formats')  # Include available formats
+        }
+        
+        # Add progress information if processing (read from cache)
+        if video['status'] == VideoStatus.PROCESSING:
+            from src.services.progress_cache import ProgressCache
+            progress_data = ProgressCache.get_progress(video_id)
+            
+            if progress_data:
+                response['progress'] = progress_data
+            else:
+                # No cache data yet, return minimal progress
+                response['progress'] = {
+                    'current_phase': 'initializing'
+                }
+        
+        return jsonify(response), 200
         
     except Exception as e:
         logger.error(f"Get video status error: {str(e)}")

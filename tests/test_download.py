@@ -1,90 +1,32 @@
 """
 Test script - Download ONLY a specific segment.
-Creates a wrapper script so yt-dlp can find FFmpeg.
+Uses shared services for FFmpeg setup and utilities.
 """
 import os
 import sys
 import subprocess
-import shutil
+from pathlib import Path
 from datetime import datetime
 
+# Add src to path
+script_dir = Path(__file__).parent
+project_root = script_dir.parent
+sys.path.insert(0, str(project_root))
 
-def timestamp_to_seconds(timestamp):
-    """
-    Convert timestamp in format 'hr:min:sec' to seconds.
-    Also accepts 'min:sec' or just 'sec'.
-    
-    Examples:
-        '1:44:00' -> 6240
-        '44:00' -> 2640
-        '90' -> 90
-    """
-    if isinstance(timestamp, (int, float)):
-        return int(timestamp)
-    
-    parts = str(timestamp).split(':')
-    
-    if len(parts) == 3:  # hr:min:sec
-        hours, minutes, seconds = map(int, parts)
-        return hours * 3600 + minutes * 60 + seconds
-    elif len(parts) == 2:  # min:sec
-        minutes, seconds = map(int, parts)
-        return minutes * 60 + seconds
-    elif len(parts) == 1:  # just seconds
-        return int(parts[0])
-    else:
-        raise ValueError(f"Invalid timestamp format: {timestamp}")
+from src.services import ffmpeg_utils_service
 
 
 # Test parameters
 TEST_URL = "https://www.youtube.com/watch?v=5135omtMu40"
-START_TIME_STR = "1:08:57"   # Can use format like "1:44:00" or "0:1:30"
+START_TIME_STR = "1:08:57"  # Can use format like "1:44:00" or "0:1:30"
 END_TIME_STR = "1:10:27"   # Automatically converts to seconds
-START_TIME = timestamp_to_seconds(START_TIME_STR)
-END_TIME = timestamp_to_seconds(END_TIME_STR)
+START_TIME = ffmpeg_utils_service.timestamp_to_seconds(START_TIME_STR)
+END_TIME = ffmpeg_utils_service.timestamp_to_seconds(END_TIME_STR)
 TIMEOUT = max(300, END_TIME - START_TIME * 2)
+
 # Output
 DOWNLOADS_DIR = "./downloads"
 OUTPUT_PATH = os.path.join(DOWNLOADS_DIR, f"segment_{int(datetime.now().timestamp())}.mp4")
-
-
-def setup_ffmpeg():
-    """Setup FFmpeg so yt-dlp can find it."""
-    try:
-        import imageio_ffmpeg
-        ffmpeg_source = imageio_ffmpeg.get_ffmpeg_exe()
-        
-        # Create a local bin directory
-        local_bin = os.path.join(os.getcwd(), 'bin')
-        os.makedirs(local_bin, exist_ok=True)
-        
-        ffmpeg_dest = os.path.join(local_bin, 'ffmpeg.exe')
-        ffprobe_dest = os.path.join(local_bin, 'ffprobe.exe')  # Some versions need this
-        
-        # Copy FFmpeg to local bin if not already there
-        if not os.path.exists(ffmpeg_dest):
-            shutil.copy2(ffmpeg_source, ffmpeg_dest)
-            print(f"✓ Copied FFmpeg to {ffmpeg_dest}")
-        else:
-            print(f"✓ FFmpeg already in {ffmpeg_dest}")
-        
-        #  Also copy ffprobe if it exists
-        ffprobe_source = ffmpeg_source.replace('ffmpeg', 'ffprobe')
-        if os.path.exists(ffprobe_source) and not os.path.exists(ffprobe_dest):
-            shutil.copy2(ffprobe_source, ffprobe_dest)
-            print(f"✓ Copied ffprobe to {ffprobe_dest}")
-        
-        # Test it
-        result = subprocess.run([ffmpeg_dest, '-version'], capture_output=True, timeout=5)
-        if result.returncode == 0:
-            print(f"✓ FFmpeg is working!")
-            return local_bin
-        
-        return None
-        
-    except Exception as e:
-        print(f"✗ FFmpeg setup error: {e}")
-        return None
 
 
 def test_download(ffmpeg_dir):
@@ -130,7 +72,7 @@ def test_download(ffmpeg_dir):
             print(f"✅ SUCCESS!")
             print(f"\nFile: {os.path.abspath(OUTPUT_PATH)}")
             print(f"Size: {size_mb:.2f} MB")
-            print(f"\nThis is ONLY the 60-second segment!")
+            print(f"\nThis is ONLY the {END_TIME - START_TIME}-second segment!")
             return True
         
         print("✗ File not created")
@@ -148,8 +90,14 @@ def main():
     print("\nYouTube Segment Downloader - Test")
     print("Downloads ONLY the specified segment\n")
     
-    ffmpeg_dir = setup_ffmpeg()
-    if not ffmpeg_dir:
+    # Setup FFmpeg using shared service
+    print("=" * 70)
+    print("Setting up FFmpeg...")
+    print("=" * 70)
+    
+    ffmpeg_path, ffmpeg_dir = ffmpeg_utils_service.setup_ffmpeg()
+    
+    if not ffmpeg_path or not ffmpeg_dir:
         print("\n❌ FFmpeg setup failed")
         sys.exit(1)
     

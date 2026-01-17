@@ -1,285 +1,252 @@
 """
 Standalone test script for video encoding service.
-This version doesn't require full app configuration.
+Uses the shared EncodingService for all encoding operations.
 """
 import os
 import sys
 from pathlib import Path
-import subprocess
-import json
-import re
+
+# Add src to path
+script_dir = Path(__file__).parent
+project_root = script_dir.parent
+sys.path.insert(0, str(project_root))
+
+from src.services import ffmpeg_utils_service
+from src.services.encoding_service import EncodingService
 
 # Test directories
-SCRIPT_DIR = Path(__file__).parent
-INPUT_DIR = SCRIPT_DIR / "videos" / "input"
-OUTPUT_DIR = SCRIPT_DIR / "videos" / "output"
-
-
-def get_ffmpeg_path():
-    """Get FFmpeg binary location."""
-    project_root = SCRIPT_DIR.parent
-    bin_dir = project_root / 'bin'
-    ffmpeg_path = bin_dir / ('ffmpeg.exe' if os.name == 'nt' else 'ffmpeg')
-    
-    if ffmpeg_path.exists():
-        return str(ffmpeg_path)
-    
-    # Fall back to imageio-ffmpeg
-    try:
-        import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except ImportError:
-        return None
+INPUT_DIR = script_dir / "videos" / "input"
+OUTPUT_DIR = script_dir / "videos" / "output"
 
 
 def test_ffmpeg_availability():
     """Test if FFmpeg is available."""
-    print("=" * 70)
-    print("Testing FFmpeg Availability")
+    print("\n" + "=" * 70)
+    print("FFmpeg Availability Test")
     print("=" * 70)
     
-    ffmpeg_path = get_ffmpeg_path()
+    ffmpeg_path, ffmpeg_dir = ffmpeg_utils_service.setup_ffmpeg()
     
-    if ffmpeg_path:
-        print(f"✅ FFmpeg found at: {ffmpeg_path}")
-        
-        try:
-            result = subprocess.run(
-                [ffmpeg_path, '-version'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            
-            if result.returncode == 0:
-                version_line = result.stdout.split('\n')[0]
-                print(f"   {version_line}")
-                print("\n✅ FFmpeg is working correctly\n")
-                return ffmpeg_path
-            else:
-                print("\n⚠️  FFmpeg found but not working\n")
-                return None
-        except Exception as e:
-            print(f"\n⚠️  FFmpeg test failed: {str(e)}\n")
-            return None
-    else:
-        print("❌ FFmpeg not found")
-        print("   Run: python setup_ffmpeg.py")
-        print("   Or install imageio-ffmpeg: pip install imageio-ffmpeg\n")
-        return None
+    if not ffmpeg_path or not ffmpeg_dir:
+        print("❌ FFmpeg not available")
+        return False
+    
+    print(f"✅ FFmpeg path: {ffmpeg_path}")
+    print(f"✅ FFmpeg directory: {ffmpeg_dir}")
+    return True, ffmpeg_path
 
 
 def find_input_videos():
     """Find video files in input directory."""
-    print("=" * 70)
-    print("Searching for Input Videos")
+    print("\n" + "=" * 70)
+    print("Finding Input Videos")
     print("=" * 70)
     
-    print(f"Input directory: {INPUT_DIR.absolute()}")
-    
-    # Ensure directories exist
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    # Supported video formats
-    video_extensions = ['*.mp4', '*.avi', '*.mkv', '*.mov', '*.flv', 
-                       '*.wmv', '*.webm', '*.m4v', '*.mpg', '*.mpeg', '*.3gp']
+    video_extensions = {'.webm', '.mp4', '.mkv', '.avi', '.mov', '.flv'}
+    videos = []
     
-    video_files = []
-    for ext in video_extensions:
-        video_files.extend(INPUT_DIR.glob(ext))
+    for file_path in INPUT_DIR.iterdir():
+        if file_path.is_file() and file_path.suffix.lower() in video_extensions:
+            size_mb = file_path.stat().st_size / (1024 * 1024)
+            videos.append((file_path, size_mb))
     
-    if video_files:
-        print(f"\n✅ Found {len(video_files)} video file(s):")
-        for vf in video_files:
-            size_mb = vf.stat().st_size / (1024 * 1024)
-            print(f"  - {vf.name} ({size_mb:.2f} MB)")
-        print()
+    if not videos:
+        print(f"⚠️  No video files found in {INPUT_DIR}")
+        print("   Please place test video files in this directory")
+        return []
+    
+    print(f"Found {len(videos)} video file(s):")
+    for video_path, size_mb in videos:
+        print(f"  • {video_path.name} ({size_mb:.2f} MB)")
+    
+    return videos
+
+
+def test_gpu_detection(ffmpeg_path):
+    """Test GPU encoder detection."""
+    print("\n" + "=" * 70)
+    print("GPU Detection Test")
+    print("=" * 70)
+    
+    for codec in ['h264', 'h265', 'av1']:
+        encoder, gpu_type = ffmpeg_utils_service.detect_gpu_encoder(ffmpeg_path, codec)
+        if encoder:
+            print(f"✅ {codec.upper()}: {gpu_type} ({encoder})")
+        else:
+            print(f"ℹ️  {codec.upper()}: No GPU encoder (will use CPU)")
+    
+    return True
+
+
+def test_video_metadata(ffmpeg_path, video_path):
+    """Test video metadata extraction."""
+    print("\n" + "="  * 70)
+    print(f"Video Metadata Test: {video_path.name}")
+    print("=" * 70)
+    
+    # Test duration detection
+    duration = ffmpeg_utils_service.get_video_duration(ffmpeg_path, str(video_path))
+    if duration:
+        minutes = int(duration // 60)
+        seconds = int(duration % 60)
+        print(f"✅ Duration: {minutes}:{seconds:02d} ({duration:.2f}s)")
     else:
-        print("\n⚠️  No video files found in input directory")
-        print(f"   Please add a test video to: {INPUT_DIR.absolute()}")
-        print(f"   Supported formats: {', '.join([e.replace('*.', '') for e in video_extensions])}\n")
+        print("⚠️  Could not determine duration")
     
-    return video_files
-
-
-def get_video_metadata(ffmpeg_path, video_path):
-    """Extract video metadata using ffprobe."""
-    try:
-        ffprobe_path = ffmpeg_path.replace('ffmpeg', 'ffprobe')
-        
-        cmd = [
-            ffprobe_path,
-            '-v', 'error',
-            '-show_entries', 'format=duration,size:stream=codec_name,codec_type,width,height',
-            '-of', 'json',
-            str(video_path)
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-        
-        if result.returncode != 0:
-            return None
-        
-        data = json.loads(result.stdout)
-        metadata = {
-            'duration': float(data.get('format', {}).get('duration', 0)),
-            'size_bytes': int(data.get('format', {}).get('size', 0)),
-        }
-        
-        for stream in data.get('streams', []):
-            if stream.get('codec_type') == 'video':
-                metadata['video_codec'] = stream.get('codec_name')
-                metadata['width'] = stream.get('width')
-                metadata['height'] = stream.get('height')
-            elif stream.get('codec_type') == 'audio':
-                metadata['audio_codec'] = stream.get('codec_name')
-        
-        return metadata
-    except Exception as e:
-        print(f"⚠️  Metadata extraction failed: {str(e)}")
-        return None
-
-
-def encode_video(ffmpeg_path, input_path, output_path, codec='h264', quality='high'):
-    """Encode video to MP4."""
-    print("=" * 70)
-    print(f"Testing Video Encoding: {codec.upper()} ({quality})")
-    print("=" * 70)
-    
-    print(f"Input: {input_path.name}")
-    
-    # Get metadata
-    print("Extracting metadata...")
-    metadata = get_video_metadata(ffmpeg_path, input_path)
-    
+    # Test full metadata
+    metadata = EncodingService.get_video_metadata(str(video_path))
     if metadata:
-        print(f"  Duration: {metadata.get('duration', 'N/A')} seconds")
-        print(f"  Resolution: {metadata.get('width', '?')}x{metadata.get('height', '?')}")
-        print(f"  Video Codec: {metadata.get('video_codec', 'N/A')}")
-        print(f"  Audio Codec: {metadata.get('audio_codec', 'N/A')}")
-    
-    # Codec configurations
-    codec_settings = {
-        'h264': {
-            'lossless': ['-c:v', 'libx264', '-crf', '18', '-preset', 'slow'],
-            'high': ['-c:v', 'libx264', '-crf', '23', '-preset', 'medium'],
-            'medium': ['-c:v', 'libx264', '-crf', '28', '-preset', 'fast']
-        },
-        'h265': {
-            'lossless': ['-c:v', 'libx265', '-crf', '20', '-preset', 'slow'],
-            'high': ['-c:v', 'libx265', '-crf', '25', '-preset', 'medium'],
-            'medium': ['-c:v', 'libx265', '-crf', '30', '-preset', 'fast']
-        },
-        'av1': {
-            'lossless': ['-c:v', 'libaom-av1', '-crf', '15', '-cpu-used', '4', '-row-mt', '1'],
-            'high': ['-c:v', 'libaom-av1', '-crf', '30', '-cpu-used', '4', '-row-mt', '1'],
-            'medium': ['-c:v', 'libaom-av1', '-crf', '35', '-cpu-used', '6', '-row-mt', '1']
-        }
-    }
-    
-    # Build command
-    cmd = [
-        ffmpeg_path,
-        '-i', str(input_path),
-    ] + codec_settings[codec][quality] + [
-        '-c:a', 'aac',
-        '-b:a', '192k',
-        '-ar', '48000',
-        '-movflags', '+faststart',
-        '-pix_fmt', 'yuv420p',
-        '-y',
-        str(output_path)
-    ]
-    
-    print(f"\nEncoding to: {output_path.name}")
-    print(f"Codec: {codec}, Quality: {quality}")
-    print("This may take a few moments...\n")
-    
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=1800  # 30 minute timeout
-        )
-        
-        if result.returncode != 0:
-            print(f"❌ Encoding failed: {result.stderr[:200]}\n")
-            return False
-        
-        if not output_path.exists():
-            print("❌ Output file not created\n")
-            return False
-        
-        output_size_mb = output_path.stat().st_size / (1024 * 1024)
-        input_size_mb = input_path.stat().st_size / (1024 * 1024)
-        
-        print(f"✅ Encoding successful!")
-        print(f"   Input size:  {input_size_mb:.2f} MB")
-        print(f"   Output size: {output_size_mb:.2f} MB")
-        if input_size_mb > 0:
-            print(f"   Compression: {((1 - output_size_mb/input_size_mb) * 100):.1f}%")
-        print(f"   Output: {output_path.absolute()}\n")
+        print("\nMetadata:")
+        for key, value in metadata.items():
+            print(f"  • {key}: {value}")
         return True
-        
-    except subprocess.TimeoutExpired:
-        print("❌ Encoding timeout\n")
+    else:
+        print("❌ Could not get metadata")
         return False
-    except Exception as e:
-        print(f"❌ Encoding error: {str(e)}\n")
+
+
+def test_encoding(ffmpeg_path, video_path, codec='h264', quality='high'):
+    """Test video encoding with progress display."""
+    print("\n" + "=" * 70)
+    print(f"Encoding Test: {codec.upper()} @ {quality}")
+    print("=" * 70)
+    
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = OUTPUT_DIR / f"{video_path.stem}_encoded_{codec}_{quality}.mp4"
+    
+    print(f"Input:  {video_path}")
+    print(f"Output: {output_path}")
+    
+    # Progress callback for console display
+    import time
+    last_update = [0]
+    start_time = time.time()
+    spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+    spinner_idx = [0]
+    
+    def progress_callback(data):
+        now = time.time()
+        if now - last_update[0] < 0.5:
+            return
+        last_update[0] = now
+        
+        if 'percent' in data:
+            percent = data.get('percent', 0)
+            eta = data.get('eta', '??:??')
+            speed = data.get('speed', '?x')
+            bar_width = 40
+            filled = int(bar_width * percent / 100)
+            bar = '█' * filled + '░' * (bar_width - filled)
+            print(f"\r[{bar}] {percent:.1f}% | ETA: {eta} | Speed: {speed}", end='', flush=True)
+        else:
+            # Fallback progress
+            frame = data.get('frame', 0)
+            fps = data.get('fps', 0)
+            speed = data.get('speed', '?x')
+            elapsed = int(now - start_time)
+            s = spinner[spinner_idx[0] % len(spinner)]
+            spinner_idx[0] += 1
+            print(f"\r{s} Frame: {frame} | FPS: {fps:.1f} | Speed: {speed} | Elapsed: {elapsed//60:02d}:{elapsed%60:02d}", 
+                  end='', flush=True)
+    
+    # Encode using service
+    success, error = EncodingService.encode_video_to_mp4(
+        str(video_path),
+        str(output_path),
+        video_codec=codec,
+        quality_preset=quality,
+        use_gpu=True,
+        encode_id=None,
+        progress_callback=progress_callback
+    )
+    
+    print()  # New line after progress
+    
+    if success:
+        size_mb = output_path.stat().st_size / (1024 * 1024)
+        print(f"\n✅ Encoding successful!")
+        print(f"   Output: {output_path}")
+        print(f"   Size: {size_mb:.2f} MB")
+        return True
+    else:
+        print(f"\n❌ Encoding failed: {error}")
         return False
 
 
 def main():
     """Run all tests."""
     print("\n" + "=" * 70)
-    print("VIDEO ENCODING SERVICE - STANDALONE TEST")
-    print("=" * 70 + "\n")
+    print("VIDEO ENCODING SERVICE - TEST SUITE")
+    print("=" * 70)
     
-    try:
-        # Test FFmpeg
-        ffmpeg_path = test_ffmpeg_availability()
-        if not ffmpeg_path:
-            print("❌ Cannot proceed without FFmpeg\n")
-            print("Setup instructions:")
-            print("1. Run: python setup_ffmpeg.py")
-            print("   OR")
-            print("2. Install: pip install imageio-ffmpeg\n")
-            return 1
-        
-        # Find input videos
-        video_files = find_input_videos()
-        
-        if not video_files:
-            print("=" * 70)
-            print("⚠️  NO VIDEOS TO TEST")
-            print("=" * 70)
-            print("\nAdd a test video to continue:")
-            print(f"  {INPUT_DIR.absolute()}\n")
-            return 0
-        
-        # Test encoding with first video
-        test_video = video_files[0]
-        output_filename = f"{test_video.stem}_h264_high.mp4"
-        output_path = OUTPUT_DIR / output_filename
-        
-        if not encode_video(ffmpeg_path, test_video, output_path, codec='h264', quality='high'):
-            return 1
-        
-        print("=" * 70)
-        print("✅ TEST PASSED")
-        print("=" * 70 + "\n")
-        
-        print("Encoded video saved to:")
-        print(f"  {output_path.absolute()}\n")
-        
+    # Test 1: FFmpeg Availability
+    result = test_ffmpeg_availability()
+    if not result:
+        return 1
+    success, ffmpeg_path = result
+    
+    # Test 2: GPU Detection
+    if not test_gpu_detection(ffmpeg_path):
+        print("\n⚠️  GPU detection test failed (non-critical)")
+    
+    # Test 3: Find videos
+    videos = find_input_videos()
+    if not videos:
+        print("\n❌ No test videos found. Please add video files to:")
+        print(f"   {INPUT_DIR}")
+        return 1
+    
+    # Test 4: Metadata for first video
+    video_path, _ = videos[0]
+    if not test_video_metadata(ffmpeg_path, video_path):
+        print("\n⚠️  Metadata test failed (non-critical)")
+    
+    # Test 5: Encoding
+    print("\n" + "=" * 70)
+    print("Starting Encoding Tests")
+    print("=" * 70)
+    print("\nNote: This will encode the first video found with different settings")
+    print("      You can cancel with Ctrl+C\n")
+    
+    tests_to_run = [
+        ('h264', 'high'),
+        # Uncomment to test more codecs:
+        # ('h265', 'high'),
+        # ('av1', 'high'),
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for codec, quality in tests_to_run:
+        try:
+            if test_encoding(ffmpeg_path, video_path, codec, quality):
+                passed += 1
+            else:
+                failed += 1
+        except KeyboardInterrupt:
+            print("\n\n⚠️  Test cancelled by user")
+            break
+        except Exception as e:
+            print(f"\n❌ Test error: {e}")
+            import traceback
+            traceback.print_exc()
+            failed += 1
+    
+    # Summary
+    print("\n" +"=" * 70)
+    print("TEST SUMMARY")
+    print("=" * 70)
+    print(f"Passed: {passed}")
+    print(f"Failed: {failed}")
+    
+    if failed == 0:
+        print("\n✅ ALL TESTS PASSED!")
         return 0
-        
-    except Exception as e:
-        print(f"\n❌ ERROR: {str(e)}\n")
-        import traceback
-        traceback.print_exc()
+    else:
+        print(f"\n⚠️  {failed} TEST(S) FAILED")
         return 1
 
 

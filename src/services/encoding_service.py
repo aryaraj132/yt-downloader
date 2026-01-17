@@ -1,25 +1,56 @@
 """Video encoding service using FFmpeg.
 
 This service provides functionality to encode/convert various video formats
-to MP4 with configurable codecs and quality settings.
+to MP4 with configurable codecs and quality settings, GPU acceleration support,
+and real-time progress tracking.
 """
 import os
 import logging
 import subprocess
 import json
 import re
-from typing import Optional, Tuple, Dict
+import time
+from typing import Optional, Tuple, Dict, Callable
 from datetime import datetime
 from pathlib import Path
 
 from src.config import Config
 from src.models.video import Video, VideoStatus
+from src.services import ffmpeg_utils_service
 
 logger = logging.getLogger(__name__)
 
 
-# Codec configurations with quality presets
-CODEC_CONFIGS = {
+# GPU Encoder configurations
+GPU_ENCODER_CONFIGS = {
+    'h264': {
+        'nvenc': {'encoder': 'h264_nvenc', 'lossless': ['-preset', 'p7', '-cq', '19', '-b:v', '0'], 
+                  'high': ['-preset', 'p5', '-cq', '23', '-b:v', '0']},
+        'amf': {'encoder': 'h264_amf', 'lossless': ['-quality', 'quality', '-qp_i', '18', '-qp_p', '18'],
+                'high': ['-quality', 'balanced', '-qp_i', '23', '-qp_p', '23']},
+        'qsv': {'encoder': 'h264_qsv', 'lossless': ['-preset', 'veryslow', '-global_quality', '18'],
+                'high': ['-preset', 'medium', '-global_quality', '23']},
+    },
+    'h265': {
+        'nvenc': {'encoder': 'hevc_nvenc', 'lossless': ['-preset', 'p7', '-cq', '20', '-b:v', '0'],
+                  'high': ['-preset', 'p5', '-cq', '25', '-b:v', '0']},
+        'amf': {'encoder': 'hevc_amf', 'lossless': ['-quality', 'quality', '-qp_i', '20', '-qp_p', '20'],
+                'high': ['-quality', 'balanced', '-qp_i', '25', '-qp_p', '25']},
+        'qsv': {'encoder': 'hevc_qsv', 'lossless': ['-preset', 'veryslow', '-global_quality', '20'],
+                'high': ['-preset', 'medium', '-global_quality', '25']},
+    },
+    'av1': {
+        'nvenc': {'encoder': 'av1_nvenc', 'lossless': ['-cq', '18', '-b:v', '0'],
+                  'high': ['-cq', '23', '-b:v', '0']},
+        'amf': {'encoder': 'av1_amf', 'lossless': ['-cq', '18', '-b:v', '0'],
+                'high': ['-cq', '23', '-b:v', '0']},
+        'qsv': {'encoder': 'av1_qsv', 'lossless': ['-cq', '18', '-b:v', '0'],
+                'high': ['-cq', '23', '-b:v', '0']},
+    }
+}
+
+# CPU Codec configurations
+CPU_CODEC_CONFIGS = {
     'h264': {
         'encoder': 'libx264',
         'quality_presets': {
@@ -37,11 +68,11 @@ CODEC_CONFIGS = {
         }
     },
     'av1': {
-        'encoder': 'libaom-av1',
+        'encoder': 'libsvtav1',
         'quality_presets': {
-            'lossless': {'crf': '15', 'cpu-used': '4'},
-            'high': {'crf': '30', 'cpu-used': '4'},
-            'medium': {'crf': '35', 'cpu-used': '6'}
+            'lossless': {'crf': '18', 'preset': '6'},
+            'high': {'crf': '23', 'preset': '8'},
+            'medium': {'crf': '28', 'preset': '10'}
         }
     }
 }
@@ -49,39 +80,13 @@ CODEC_CONFIGS = {
 # Audio encoding configuration
 AUDIO_CONFIG = {
     'codec': 'aac',
-    'bitrate': '192k',  # High quality AAC audio
+    'bitrate': '192k',
     'sample_rate': '48000'
 }
 
 
-def get_ffmpeg_location():
-    """Get FFmpeg binary location."""
-    from pathlib import Path
-    
-    project_root = Path(__file__).parent.parent.parent
-    bin_dir = project_root / 'bin'
-    ffmpeg_path = bin_dir / ('ffmpeg.exe' if os.name == 'nt' else 'ffmpeg')
-    
-    if ffmpeg_path.exists():
-        logger.info(f"Using FFmpeg from bin directory: {ffmpeg_path}")
-        return str(ffmpeg_path)
-    
-    # Fall back to imageio-ffmpeg
-    try:
-        import imageio_ffmpeg
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        logger.info(f"Using FFmpeg from imageio-ffmpeg: {ffmpeg_exe}")
-        return ffmpeg_exe
-    except ImportError:
-        logger.warning("FFmpeg not found in bin/ and imageio-ffmpeg not installed")
-        return None
-
-
-FFMPEG_PATH = get_ffmpeg_location()
-
-
 class EncodingService:
-    """Service for encoding videos to MP4 with various codecs."""
+    """Service for encoding videos to MP4 with GPU/CPU codecs and progress tracking.\"""
     
     @staticmethod
     def validate_video_file(file_path: str) -> Tuple[bool, Optional[str]]:
@@ -97,13 +102,18 @@ class EncodingService:
         if not os.path.exists(file_path):
             return False, "File not found"
         
-        if not FFMPEG_PATH:
+        ffmpeg_path, _ = ffmpeg_utils_service.get_ffmpeg_path()
+        if not ffmpeg_path:
             return False, "FFmpeg not available"
         
         try:
             # Use ffprobe to check if file is a valid video
+            ffprobe_path = str(Path(ffmpeg_path).parent / ('ffprobe.exe' if os.name == 'nt' else 'ffprobe'))
+            if not os.path.exists(ffprobe_path):
+                ffprobe_path = 'ffprobe'
+            
             cmd = [
-                FFMPEG_PATH.replace('ffmpeg', 'ffprobe') if 'ffmpeg' in FFMPEG_PATH else 'ffprobe',
+                ffprobe_path,
                 '-v', 'error',
                 '-select_streams', 'v:0',
                 '-show_entries', 'stream=codec_type',
@@ -111,12 +121,7 @@ class EncodingService:
                 file_path
             ]
             
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
             if result.returncode != 0:
                 return False, "Invalid video file or unsupported format"
@@ -144,12 +149,15 @@ class EncodingService:
         Returns:
             Dictionary containing video metadata or None
         """
-        if not FFMPEG_PATH:
+        ffmpeg_path, _ = ffmpeg_utils_service.get_ffmpeg_path()
+        if not ffmpeg_path:
             logger.error("FFmpeg not available")
             return None
         
         try:
-            ffprobe_path = FFMPEG_PATH.replace('ffmpeg', 'ffprobe') if 'ffmpeg' in FFMPEG_PATH else 'ffprobe'
+            ffprobe_path = str(Path(ffmpeg_path).parent / ('ffprobe.exe' if os.name == 'nt' else 'ffprobe'))
+            if not os.path.exists(ffprobe_path):
+                ffprobe_path = 'ffprobe'
             
             cmd = [
                 ffprobe_path,
@@ -159,12 +167,7 @@ class EncodingService:
                 file_path
             ]
             
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=15
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
             
             if result.returncode != 0:
                 logger.error(f"ffprobe error: {result.stderr}")
@@ -201,111 +204,199 @@ class EncodingService:
         output_path: str,
         video_codec: str = 'h264',
         quality_preset: str = 'high',
-        encode_id: Optional[str] = None
+        use_gpu: bool = True,
+        encode_id: Optional[str] = None,
+        progress_callback: Optional[Callable[[Dict], None]] = None
     ) -> Tuple[bool, Optional[str]]:
         """
-        Encode video to MP4 format with specified codec and quality.
+        Encode video to MP4 format with GPU/CPU codec and real-time progress.
         
         Args:
             input_path: Path to input video file
             output_path: Path for output MP4 file
             video_codec: Video codec (h264, h265, av1)
             quality_preset: Quality preset (lossless, high, medium)
-            encode_id: Optional encode request ID for progress updates
+            use_gpu: Try GPU encoding first
+            encode_id: Optional encode request ID for database progress updates
+            progress_callback: Optional callback for progress updates
+                              Called with dict: {'percent': float, 'fps': float, 'speed': str, 'eta': str}
             
         Returns:
             Tuple of (success, error_message)
         """
         try:
-            if not FFMPEG_PATH:
+            ffmpeg_path, _ = ffmpeg_utils_service.get_ffmpeg_path()
+            if not ffmpeg_path:
                 return False, "FFmpeg not available"
             
-            # Validate codec and preset
-            if video_codec not in CODEC_CONFIGS:
-                return False, f"Unsupported codec: {video_codec}"
+            # Get video duration for progress tracking
+            duration = ffmpeg_utils_service.get_video_duration(ffmpeg_path, input_path)
             
-            codec_config = CODEC_CONFIGS[video_codec]
-            if quality_preset not in codec_config['quality_presets']:
-                return False, f"Invalid quality preset: {quality_preset}"
+            # Try GPU encoding first if requested
+            gpu_encoder = None
+            gpu_type = None
+            if use_gpu:
+                gpu_encoder_name, gpu_type = ffmpeg_utils_service.detect_gpu_encoder(ffmpeg_path, video_codec)
+                if gpu_encoder_name:
+                    # Find GPU config
+                    for encoder_type_key in GPU_ENCODER_CONFIGS.get(video_codec, {}).keys():
+                        if encoder_type_key in gpu_encoder_name:
+                            gpu_encoder = GPU_ENCODER_CONFIGS[video_codec][encoder_type_key]
+                            break
             
-            preset_config = codec_config['quality_presets'][quality_preset]
-            encoder = codec_config['encoder']
-            
-            # Build FFmpeg command
-            cmd = [
-                FFMPEG_PATH,
-                '-i', input_path,
-                '-c:v', encoder,
-                '-c:a', AUDIO_CONFIG['codec'],
-                '-b:a', AUDIO_CONFIG['bitrate'],
-                '-ar', AUDIO_CONFIG['sample_rate'],
-            ]
-            
-            # Add codec-specific parameters
-            if video_codec == 'av1':
-                cmd.extend(['-crf', preset_config['crf']])
-                cmd.extend(['-cpu-used', preset_config['cpu-used']])
-                cmd.extend(['-row-mt', '1'])  # Enable row-based multithreading for AV1
+            # Build encoding command
+            if gpu_encoder:
+                # GPU encoding
+                logger.info(f"Using GPU encoder: {gpu_type} ({gpu_encoder['encoder']})")
+                cmd = [
+                    ffmpeg_path,
+                    '-i', input_path,
+                    '-progress', 'pipe:2',
+                    '-c:v', gpu_encoder['encoder']
+                ] + gpu_encoder.get(quality_preset, gpu_encoder['high']) + [
+                    '-c:a', AUDIO_CONFIG['codec'],
+                    '-b:a', AUDIO_CONFIG['bitrate'],
+                    '-ar', AUDIO_CONFIG['sample_rate'],
+                    '-movflags', '+faststart',
+                    '-pix_fmt', 'yuv420p',
+                    '-y',
+                    output_path
+                ]
             else:
-                cmd.extend(['-crf', preset_config['crf']])
-                cmd.extend(['-preset', preset_config['preset']])
-            
-            # Output settings
-            cmd.extend([
-                '-movflags', '+faststart',  # Enable fast start for web playback
-                '-pix_fmt', 'yuv420p',  # Ensure compatibility
-                '-y',  # Overwrite output file
-                output_path
-            ])
-            
-            logger.info(f"Starting encoding: {video_codec} ({quality_preset})")
-            logger.debug(f"FFmpeg command: {' '.join(cmd)}")
+                # CPU encoding
+                if video_codec == 'av1' and not use_gpu:
+                    # AV1 without GPU -> fallback to H.265
+                    logger.warning("⚠️  AV1 GPU encoder not available, falling back to H.265")
+                    video_codec = 'h265'
+                
+                logger.info(f"Using CPU encoder: {CPU_CODEC_CONFIGS[video_codec]['encoder']}")
+                codec_config = CPU_CODEC_CONFIGS[video_codec]
+                preset_config = codec_config['quality_presets'][quality_preset]
+                
+                cmd = [
+                    ffmpeg_path,
+                    '-i', input_path,
+                    '-progress', 'pipe:2',
+                    '-c:v', codec_config['encoder']
+                ]
+                
+                # Add codec-specific parameters
+                if video_codec == 'av1':
+                    cmd.extend(['-crf', preset_config['crf'], '-preset', preset_config['preset']])
+                else:
+                    cmd.extend(['-crf', preset_config['crf'], '-preset', preset_config['preset']])
+                
+                cmd.extend([
+                    '-c:a', AUDIO_CONFIG['codec'],
+                    '-b:a', AUDIO_CONFIG['bitrate'],
+                    '-ar', AUDIO_CONFIG['sample_rate'],
+                    '-movflags', '+faststart',
+                    '-pix_fmt', 'yuv420p',
+                    '-y',
+                    output_path
+                ])
             
             # Update status to processing
             if encode_id:
                 Video.update_status(encode_id, VideoStatus.PROCESSING)
             
-            # Execute FFmpeg
+            logger.info(f"Starting encoding: {video_codec} ({quality_preset})")
+            
+            # Execute FFmpeg with progress monitoring
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
-                universal_newlines=True
+                universal_newlines=True,
+                bufsize=1
             )
             
-            # Monitor progress
-            duration = None
+            start_time = time.time()
+            last_update = 0
+            spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+            spinner_idx = 0
+            
+            # Parse progress from stderr
             for line in process.stderr:
-                # Extract duration from FFmpeg output
-                if duration is None:
-                    duration_match = re.search(r'Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})', line)
-                    if duration_match:
-                        hours, minutes, seconds = duration_match.groups()
-                        duration = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+                # Look for time progress
+                time_match = re.search(r'time=(\d+):(\d+):(\d+\.\d+)', line)
                 
-                # Extract current time for progress calculation
-                time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2}\.\d{2})', line)
-                if time_match and duration and encode_id:
-                    hours, minutes, seconds = time_match.groups()
-                    current_time = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
-                    progress = min(int((current_time / duration) * 100), 99)
-                    
-                    # Update progress in database
-                    from src.services.db_service import get_database
-                    db = get_database()
-                    db.videos.update_one(
-                        {'_id': Video.find_by_id(encode_id)['_id']},
-                        {'$set': {'encoding_progress': progress}}
-                    )
+                if time_match:
+                    now = time.time()
+                    if now - last_update >= 0.5:  # Throttle updates
+                        last_update = now
+                        
+                        hours, minutes, seconds = time_match.groups()
+                        current_time = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+                        
+                        # Build progress data
+                        progress_data = {}
+                        
+                        if duration:
+                            # Progress with duration
+                            progress_pct = (current_time / duration) * 100
+                            elapsed = now - start_time
+                            
+                            if current_time > 0:
+                                eta_seconds = ((elapsed / current_time) * duration) - elapsed
+                                progress_data['eta'] = f"{int(eta_seconds//60):02d}:{int(eta_seconds%60):02d}"
+                            else:
+                                progress_data['eta'] = "calculating..."
+                            
+                            progress_data['percent'] = min(progress_pct, 99)
+                        else:
+                            # Progress without duration
+                            progress_data['current_time'] = current_time
+                            progress_data['spinner'] = spinner_chars[spinner_idx % len(spinner_chars)]
+                            spinner_idx += 1
+                        
+                        # Extract FPS and speed
+                        fps_match = re.search(r'fps=\s*([\d.]+)', line)
+                        speed_match = re.search(r'speed=\s*([\d.]+)x', line)
+                        frame_match = re.search(r'frame=\s*(\d+)', line)
+                        
+                        if fps_match:
+                            progress_data['fps'] = float(fps_match.group(1))
+                        if speed_match:
+                            progress_data['speed'] = speed_match.group(1) + 'x'
+                        if frame_match:
+                            progress_data['frame'] = int(frame_match.group(1))
+                        
+                        # Store in cache for status API
+                        from src.services.progress_cache import ProgressCache
+                        cache_data = {
+                            'current_phase': 'encoding'
+                        }
+                        if 'percent' in progress_data:
+                            cache_data['encoding_progress'] = progress_data['percent']
+                            cache_data['eta'] = progress_data.get('eta', '??:??')
+                        if 'speed' in progress_data:
+                            cache_data['speed'] = progress_data['speed']
+                        if 'fps' in progress_data:
+                            cache_data['fps'] = progress_data['fps']
+                        
+                        if encode_id:
+                            ProgressCache.set_progress(encode_id, cache_data)
+                        
+                        # Call progress callback if provided
+                        if progress_callback:
+                            progress_callback(progress_data)
             
             # Wait for process to complete
-            process.wait(timeout=Config.ENCODING_TIMEOUT_SECONDS)
+            process.wait()
             
             if process.returncode != 0:
-                error_output = process.stderr.read() if process.stderr else "Unknown error"
-                logger.error(f"Encoding failed: {error_output}")
-                return False, f"Encoding failed: {error_output[:200]}"
+                # If GPU encoding failed, retry with CPU
+                if gpu_encoder and use_gpu:
+                    logger.warning(f"⚠️  GPU encoding failed, retrying with CPU...")
+                    return EncodingService.encode_video_to_mp4(
+                        input_path, output_path, video_codec, quality_preset,
+                        use_gpu=False, encode_id=encode_id, progress_callback=progress_callback
+                    )
+                else:
+                    error_msg = f"Encoding failed (exit code {process.returncode})"
+                    logger.error(error_msg)
+                    return False, error_msg
             
             # Verify output file exists
             if not os.path.exists(output_path):
@@ -315,7 +406,7 @@ class EncodingService:
             return True, None
             
         except subprocess.TimeoutExpired:
-            error_msg = f"Encoding timeout (max: {Config.ENCODING_TIMEOUT_SECONDS}s)"
+            error_msg = f"Encoding timeout"
             logger.error(error_msg)
             if process:
                 process.kill()
@@ -324,6 +415,8 @@ class EncodingService:
         except Exception as e:
             error_msg = f"Encoding error: {str(e)}"
             logger.error(error_msg)
+            import traceback
+            traceback.print_exc()
             return False, error_msg
     
     @staticmethod
@@ -336,5 +429,5 @@ class EncodingService:
         """
         return {
             codec: list(config['quality_presets'].keys())
-            for codec, config in CODEC_CONFIGS.items()
+            for codec, config in CPU_CODEC_CONFIGS.items()
         }

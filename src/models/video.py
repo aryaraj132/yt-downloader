@@ -31,7 +31,8 @@ class Video:
         additional_message: Optional[str] = None,
         format_preference: Optional[str] = None,
         resolution_preference: Optional[str] = None,
-        clip_offset: Optional[int] = None
+        clip_offset: Optional[int] = None,
+        available_formats: Optional[Dict] = None
     ) -> Optional[str]:
         """
         Create a new video download request.
@@ -45,6 +46,7 @@ class Video:
             format_preference: Preferred video format (e.g., 'mp4', 'webm')
             resolution_preference: Preferred resolution (e.g., '1080p', '720p', 'best')
             clip_offset: For live stream clips, offset from timestamp
+            available_formats: List of available high-quality resolutions (e.g., ["1440p", "1080p", "720p"])
             
         Returns:
             Video ID as string if successful, None otherwise
@@ -66,9 +68,8 @@ class Video:
                 'source_type': 'youtube',  # 'youtube' or 'upload'
                 'encoding_progress': 0,
                 'additional_message': additional_message,
-                'format_preference': format_preference or Config.DEFAULT_VIDEO_FORMAT,
-                'resolution_preference': resolution_preference or Config.DEFAULT_VIDEO_RESOLUTION,
-                'clip_offset': clip_offset
+                'clip_offset': clip_offset,
+                'available_formats': available_formats  # Store available formats
             }
             
             result = db.videos.insert_one(video_doc)
