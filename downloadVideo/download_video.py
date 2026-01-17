@@ -6,6 +6,8 @@ import os
 import sys
 import subprocess
 import shutil
+import re
+import time
 from pathlib import Path
 from datetime import datetime
 
@@ -35,6 +37,112 @@ def timestamp_to_seconds(timestamp):
         return int(parts[0])
     else:
         raise ValueError(f"Invalid timestamp format: {timestamp}")
+
+
+def get_video_duration(ffmpeg_path, video_path):
+    """
+    Get the duration of a video file in seconds using ffprobe or ffmpeg.
+    Returns None if duration cannot be determined.
+    This should be very fast (under 1 second) as it only reads metadata.
+    """
+    try:
+        # ffprobe is usually in the same directory as ffmpeg
+        ffprobe_path = str(Path(ffmpeg_path).parent / ('ffprobe.exe' if os.name == 'nt' else 'ffprobe'))
+        
+        # Try ffprobe first (fastest method)
+        if os.path.exists(ffprobe_path):
+            cmd = [
+                ffprobe_path,
+                '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                str(video_path)
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                try:
+                    return float(result.stdout.strip())
+                except ValueError:
+                    pass
+        
+        # Fallback: Use FFmpeg to read metadata (NOT decode video)
+        # Just running ffmpeg -i will output file info to stderr and exit
+        cmd = [
+            ffmpeg_path,
+            '-i', str(video_path)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        
+        # Duration is in stderr (ffmpeg outputs metadata to stderr)
+        duration_match = re.search(r'Duration: (\d+):(\d+):(\d+\.\d+)', result.stderr)
+        if duration_match:
+            hours, minutes, seconds = duration_match.groups()
+            return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+            
+        return None
+        
+    except subprocess.TimeoutExpired:
+        print(f"⚠️  Video duration check timed out (this shouldn't happen - may indicate a corrupted file)")
+        print(f"   Encoding will continue without progress bar\n")
+        return None
+    except Exception as e:
+        print(f"⚠️  Could not determine video duration: {e}")
+        print(f"   Encoding will continue without progress bar\n")
+        return None
+
+
+def detect_gpu_encoder(ffmpeg_path, codec='h264'):
+    """
+    Detect available GPU encoders for the given codec by actually testing them.
+    Returns tuple: (encoder_name, encoder_type) or (None, None) if no GPU available.
+    """
+    encoders_to_test = []
+    
+    if codec == 'h264':
+        # Test in order: AMD → NVIDIA → Intel (prioritize AMD for user's system)
+        encoders_to_test = [
+            ('h264_amf', 'AMD'),
+            ('h264_nvenc', 'NVIDIA'),
+            ('h264_qsv', 'Intel QuickSync'),
+        ]
+    elif codec == 'h265':
+        encoders_to_test = [
+            ('hevc_amf', 'AMD'),
+            ('hevc_nvenc', 'NVIDIA'),
+            ('hevc_qsv', 'Intel QuickSync'),
+        ]
+    
+    # Test each encoder by trying to encode a dummy frame
+    for encoder, gpu_type in encoders_to_test:
+        try:
+            # Create a test command that encodes 1 black frame
+            cmd = [
+                ffmpeg_path,
+                '-f', 'lavfi',
+                '-i', 'color=black:s=1280x720:d=0.1',
+                '-c:v', encoder,
+                '-frames:v', '1',
+                '-f', 'null',
+                '-'
+            ]
+            
+            # Try to encode - if it works, this GPU encoder is available
+            result = subprocess.run(
+                cmd, 
+                capture_output=True, 
+                text=True, 
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                # Encoder works! Return it
+                return encoder, gpu_type
+        except Exception:
+            # This encoder doesn't work, try next one
+            continue
+    
+    return None, None
 
 
 def get_ffmpeg_path():
@@ -195,36 +303,87 @@ def download_segment(ffmpeg_dir, url, start_time_str, end_time_str, extension, o
         return False
 
 
-def encode_video(ffmpeg_path, input_path, output_path, codec='h264', quality='lossless'):
-    """Encode video to high-quality MP4."""
+def encode_video(ffmpeg_path, input_path, output_path, codec='h264', quality='lossless', use_gpu=True, duration=None):
+    """Encode video to high-quality MP4 with GPU acceleration and progress tracking."""
     print("\n" + "=" * 70)
     print("Step 2: Encoding to High-Quality MP4")
     print("=" * 70)
     
     print(f"Input: {input_path}")
     print(f"Output: {output_path}")
-    print(f"Codec: {codec}, Quality: {quality}\n")
+    print(f"Codec: {codec}, Quality: {quality}")
     
     # Ensure output directory exists
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
-    # Codec configurations - using best lossless quality
-    codec_settings = {
-        'h264': {
-            'lossless': ['-c:v', 'libx264', '-crf', '18', '-preset', 'slow'],
-            'high': ['-c:v', 'libx264', '-crf', '23', '-preset', 'medium'],
-        },
-        'h265': {
-            'lossless': ['-c:v', 'libx265', '-crf', '20', '-preset', 'slow'],
-            'high': ['-c:v', 'libx265', '-crf', '25', '-preset', 'medium'],
-        },
-    }
+    # Get video duration for progress tracking (only if not already provided)
+    if duration is None:
+        duration = get_video_duration(ffmpeg_path, input_path)
     
-    # Build encoding command
+    if duration:
+        print(f"Duration: {int(duration//3600):02d}:{int((duration%3600)//60):02d}:{int(duration%60):02d}")
+    else:
+        print("Duration: Unknown (will show alternative progress indicators)")
+    
+    # Detect GPU encoder if requested
+    gpu_encoder = None
+    gpu_type = None
+    if use_gpu:
+        gpu_encoder, gpu_type = detect_gpu_encoder(ffmpeg_path, codec)
+        if gpu_encoder:
+            print(f"🚀 GPU Acceleration: {gpu_type} ({gpu_encoder})")
+        else:
+            print("ℹ️  No GPU encoder detected, using CPU")
+    else:
+        print("ℹ️  GPU disabled, using CPU")
+    
+    print()
+    
+    # Build encoding command based on encoder type
+    if gpu_encoder:
+        # GPU encoding settings
+        if 'nvenc' in gpu_encoder:
+            # NVIDIA settings
+            if quality == 'lossless':
+                video_settings = ['-c:v', gpu_encoder, '-preset', 'p7', '-cq', '19', '-b:v', '0']
+            else:
+                video_settings = ['-c:v', gpu_encoder, '-preset', 'p5', '-cq', '23', '-b:v', '0']
+        elif 'amf' in gpu_encoder:
+            # AMD settings
+            if quality == 'lossless':
+                video_settings = ['-c:v', gpu_encoder, '-quality', 'quality', '-qp_i', '18', '-qp_p', '18']
+            else:
+                video_settings = ['-c:v', gpu_encoder, '-quality', 'balanced', '-qp_i', '23', '-qp_p', '23']
+        elif 'qsv' in gpu_encoder:
+            # Intel QuickSync settings
+            if quality == 'lossless':
+                video_settings = ['-c:v', gpu_encoder, '-preset', 'veryslow', '-global_quality', '18']
+            else:
+                video_settings = ['-c:v', gpu_encoder, '-preset', 'medium', '-global_quality', '23']
+        else:
+            # Fallback to CPU
+            gpu_encoder = None
+    
+    if not gpu_encoder:
+        # CPU encoding settings
+        codec_settings = {
+            'h264': {
+                'lossless': ['-c:v', 'libx264', '-crf', '18', '-preset', 'slow'],
+                'high': ['-c:v', 'libx264', '-crf', '23', '-preset', 'medium'],
+            },
+            'h265': {
+                'lossless': ['-c:v', 'libx265', '-crf', '20', '-preset', 'slow'],
+                'high': ['-c:v', 'libx265', '-crf', '25', '-preset', 'medium'],
+            },
+        }
+        video_settings = codec_settings[codec][quality]
+    
+    # Build complete FFmpeg command
     cmd = [
         ffmpeg_path,
         '-i', input_path,
-    ] + codec_settings[codec][quality] + [
+        '-progress', 'pipe:2',  # Output progress to stderr
+    ] + video_settings + [
         '-c:a', 'aac',
         '-b:a', '192k',
         '-ar', '48000',
@@ -234,28 +393,110 @@ def encode_video(ffmpeg_path, input_path, output_path, codec='h264', quality='lo
         output_path
     ]
     
-    print("Encoding... (this may take a few minutes)\n")
+    print("Encoding in progress...\n")
     
     try:
-        result = subprocess.run(
+        # Run FFmpeg with real-time progress monitoring
+        process = subprocess.Popen(
             cmd,
-            capture_output=True,
-            text=True,
-            timeout=None  # 30 minute timeout
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            bufsize=1
         )
         
-        if result.returncode != 0:
-            print(f"❌ Encoding failed: {result.stderr[:300]}\n")
-            return False
+        start_time = time.time()
+        last_update = 0
+        spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+        spinner_idx = 0
+        
+        # Parse progress from stderr
+        for line in process.stderr:
+            # Look for time progress (format: time=00:01:23.45)
+            time_match = re.search(r'time=(\d+):(\d+):(\d+\.\d+)', line)
+            
+            if time_match and duration:
+                # Progress bar mode (when duration is known)
+                hours, minutes, seconds = time_match.groups()
+                current_time = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+                
+                # Update progress display (throttle to once per 0.5 seconds)
+                now = time.time()
+                if now - last_update >= 0.5:
+                    last_update = now
+                    
+                    progress_pct = (current_time / duration) * 100
+                    elapsed = now - start_time
+                    
+                    # Calculate ETA
+                    if current_time > 0:
+                        estimated_total = (elapsed / current_time) * duration
+                        eta_seconds = estimated_total - elapsed
+                        eta_str = f"{int(eta_seconds//60):02d}:{int(eta_seconds%60):02d}"
+                    else:
+                        eta_str = "calculating..."
+                    
+                    # Speed multiplier
+                    speed_match = re.search(r'speed=\s*([\d.]+)x', line)
+                    speed = speed_match.group(1) if speed_match else "?"
+                    
+                    # Display progress bar
+                    bar_width = 40
+                    filled = int(bar_width * progress_pct / 100)
+                    bar = '█' * filled + '░' * (bar_width - filled)
+                    
+                    print(f"\r[{bar}] {progress_pct:.1f}% | ETA: {eta_str} | Speed: {speed}x", end='', flush=True)
+            
+            elif time_match:
+                # Fallback mode (when duration is unknown)
+                now = time.time()
+                if now - last_update >= 0.5:
+                    last_update = now
+                    
+                    hours, minutes, seconds = time_match.groups()
+                    current_time_str = f"{int(hours):02d}:{int(minutes):02d}:{int(float(seconds)):02d}"
+                    elapsed = now - start_time
+                    elapsed_str = f"{int(elapsed//60):02d}:{int(elapsed%60):02d}"
+                    
+                    # Get frame count and fps
+                    frame_match = re.search(r'frame=\s*(\d+)', line)
+                    fps_match = re.search(r'fps=\s*([\d.]+)', line)
+                    speed_match = re.search(r'speed=\s*([\d.]+)x', line)
+                    
+                    frame = frame_match.group(1) if frame_match else "?"
+                    fps = fps_match.group(1) if fps_match else "?"
+                    speed = speed_match.group(1) if speed_match else "?"
+                    
+                    # Spinner animation
+                    spinner = spinner_chars[spinner_idx % len(spinner_chars)]
+                    spinner_idx += 1
+                    
+                    print(f"\r{spinner} Encoding: {current_time_str} | Frame: {frame} | FPS: {fps} | Speed: {speed}x | Elapsed: {elapsed_str}", end='', flush=True)
+        
+        # Wait for process to complete
+        process.wait()
+        print()  # New line after progress display
+        
+        if process.returncode != 0:
+            # If GPU encoding failed, retry with CPU (pass duration to avoid re-checking)
+            if gpu_encoder:
+                print(f"\n⚠️  GPU encoding failed, retrying with CPU...\n")
+                return encode_video(ffmpeg_path, input_path, output_path, codec, quality, use_gpu=False, duration=duration)
+            else:
+                print(f"\n❌ Encoding failed (exit code {process.returncode})\n")
+                return False
         
         if not os.path.exists(output_path):
             print("❌ Output file not created\n")
             return False
         
+        # Success!
+        elapsed_time = time.time() - start_time
         output_size_mb = os.path.getsize(output_path) / (1024 * 1024)
         input_size_mb = os.path.getsize(input_path) / (1024 * 1024)
         
-        print(f"✅ Encoding successful!")
+        print(f"\n✅ Encoding successful!")
+        print(f"   Encoding time: {int(elapsed_time//60)}m {int(elapsed_time%60)}s")
         print(f"   Input size:  {input_size_mb:.2f} MB")
         print(f"   Output size: {output_size_mb:.2f} MB")
         if input_size_mb > 0:
@@ -269,6 +510,8 @@ def encode_video(ffmpeg_path, input_path, output_path, codec='h264', quality='lo
         return False
     except Exception as e:
         print(f"❌ Encoding error: {e}\n")
+        import traceback
+        traceback.print_exc()
         return False
 
 
