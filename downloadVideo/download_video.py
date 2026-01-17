@@ -241,7 +241,7 @@ def encode_video(ffmpeg_path, input_path, output_path, codec='h264', quality='lo
             cmd,
             capture_output=True,
             text=True,
-            timeout=1800  # 30 minute timeout
+            timeout=None  # 30 minute timeout
         )
         
         if result.returncode != 0:
@@ -272,6 +272,67 @@ def encode_video(ffmpeg_path, input_path, output_path, codec='h264', quality='lo
         return False
 
 
+def select_input_file(input_dir):
+    """
+    List all video files in the input directory and prompt user to select one.
+    Returns the selected file path or None if no files found or invalid selection.
+    """
+    # Common video file extensions
+    video_extensions = {'.webm', '.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.m4v'}
+    
+    # Get all video files in input directory
+    video_files = []
+    if input_dir.exists():
+        for file_path in input_dir.iterdir():
+            if file_path.is_file() and file_path.suffix.lower() in video_extensions:
+                video_files.append(file_path)
+    
+    if not video_files:
+        print(f"\n❌ No video files found in: {input_dir.absolute()}")
+        print("   Please download a video first before using ONLY_ENCODE mode.\n")
+        return None
+    
+    # Sort files by modification time (newest first)
+    video_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    
+    # Display available files
+    print("\n" + "=" * 70)
+    print("Available video files in input folder:")
+    print("=" * 70)
+    
+    for idx, file_path in enumerate(video_files, 1):
+        file_size_mb = file_path.stat().st_size / (1024 * 1024)
+        mod_time = datetime.fromtimestamp(file_path.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+        print(f"{idx}. {file_path.name}")
+        print(f"   Size: {file_size_mb:.2f} MB | Modified: {mod_time}")
+    
+    print("=" * 70)
+    
+    # Prompt user to select
+    while True:
+        try:
+            selection = input(f"\nSelect a file to encode (1-{len(video_files)}) or 'q' to quit: ").strip()
+            
+            if selection.lower() == 'q':
+                print("Cancelled by user.\n")
+                return None
+            
+            file_idx = int(selection) - 1
+            
+            if 0 <= file_idx < len(video_files):
+                selected_file = video_files[file_idx]
+                print(f"\n✅ Selected: {selected_file.name}\n")
+                return selected_file
+            else:
+                print(f"❌ Invalid selection. Please enter a number between 1 and {len(video_files)}.")
+        
+        except ValueError:
+            print("❌ Invalid input. Please enter a number or 'q' to quit.")
+        except KeyboardInterrupt:
+            print("\n\nCancelled by user.\n")
+            return None
+
+
 def main():
     """Main function to download and encode YouTube video segment."""
     print("\n" + "=" * 70)
@@ -279,27 +340,41 @@ def main():
     print("=" * 70 + "\n")
     
     # Configuration - MODIFY THESE VALUES
-    VIDEO_URL = "https://www.youtube.com/watch?v=5135omtMu40"
-    START_TIME = "1:08:57"  # hr:min:sec format
-    END_TIME = "1:10:27"
+    VIDEO_URL = "https://www.youtube.com/watch?v=fRdMGjcqczM"
+    START_TIME = "1:14:44"  # hr:min:sec format
+    END_TIME = "3:12:21"
     # EXTENSION = 'mp4'
     EXTENSION = ''
     # Optional: Change codec ('h264' or 'h265') and quality ('lossless' or 'high')
     CODEC = 'h264'
     QUALITY = 'lossless'
+    ONLY_ENCODE = True
     
     # Setup paths
     script_dir = Path(__file__).parent
     input_dir = script_dir / "input"
     output_dir = script_dir / "output"
     
-    timestamp = int(datetime.now().timestamp())
-    temp_file = input_dir / f"segment_{timestamp}.webm"
-    final_file = output_dir / f"segment_{timestamp}.mp4"
-    
     # Create directories
     input_dir.mkdir(exist_ok=True)
     output_dir.mkdir(exist_ok=True)
+    
+    # When ONLY_ENCODE is True, prompt user to select an existing file
+    # When False, use timestamps to avoid overwriting previous downloads
+    if ONLY_ENCODE:
+        selected_file = select_input_file(input_dir)
+        if selected_file is None:
+            return 1  # Exit if no file selected or found
+        
+        temp_file = selected_file
+        # Generate output filename based on input file
+        output_filename = f"{selected_file.stem}_encoded.mp4"
+        final_file = output_dir / output_filename
+    else:
+        timestamp = int(datetime.now().timestamp())
+        temp_file = input_dir / f"segment_{timestamp}.webm"
+        final_file = output_dir / f"segment_{timestamp}.mp4"
+
     
     # Setup FFmpeg
     ffmpeg_path, ffmpeg_dir = setup_ffmpeg()
@@ -311,10 +386,21 @@ def main():
     
     try:
         # Step 1: Download segment
-        if not download_segment(ffmpeg_dir, VIDEO_URL, START_TIME, END_TIME, EXTENSION, str(temp_file), str(final_file)):
-            print("\n❌ Download failed. Exiting.\n")
-            return 1
-        if not EXTENSION == 'mp4':
+        if not ONLY_ENCODE:
+            if not download_segment(ffmpeg_dir, VIDEO_URL, START_TIME, END_TIME, EXTENSION, str(temp_file), str(final_file)):
+                print("\n❌ Download failed. Exiting.\n")
+                return 1
+        
+        # Step 2: Encode if needed (either ONLY_ENCODE mode or downloaded non-mp4)
+        # Only encode if: (1) We're in ONLY_ENCODE mode OR (2) Downloaded format is not mp4
+        # AND the input file exists
+        if (ONLY_ENCODE or EXTENSION != 'mp4'):
+            # Check if the input file exists before encoding
+            if not os.path.exists(temp_file):
+                print(f"\n❌ Input file not found: {temp_file}")
+                print("   Make sure the file exists before using ONLY_ENCODE mode.\n")
+                return 1
+            
             if not encode_video(ffmpeg_path, str(temp_file), str(final_file), CODEC, QUALITY):
                 print("\n❌ Encoding failed. Exiting.\n")
                 return 1
@@ -324,21 +410,25 @@ def main():
         print("✅ SUCCESS - Process Complete!")
         print("=" * 70)
         
-        if EXTENSION == 'mp4':
+        if ONLY_ENCODE:
+            print(f"\n📁 Input file:    {temp_file.absolute()}")
+            print(f"📁 Encoded video: {final_file.absolute()}")
+            print("   (Encoding only mode - download was skipped)\n")
+        elif EXTENSION == 'mp4':
             print(f"\n📁 Downloaded video: {final_file.absolute()}")
             print(f"   (Direct MP4 download, no encoding needed)\n")
         else:
             print(f"\n📁 Downloaded segment: {temp_file.absolute()}")
             print(f"📁 Encoded video:      {final_file.absolute()}\n")
             
-            # Optional: Clean up intermediate file (only for webm)
-            cleanup = input("\nDelete intermediate .webm file? (y/n): ").strip().lower()
-            if cleanup == 'y':
-                try:
-                    os.remove(temp_file)
-                    print(f"✅ Deleted {temp_file.name}\n")
-                except Exception as e:
-                    print(f"⚠️  Could not delete file: {e}\n")
+            # Optional: Clean up intermediate file (only for webm downloads, not ONLY_ENCODE mode)
+            # cleanup = input("\nDelete intermediate .webm file? (y/n): ").strip().lower()
+            # if cleanup == 'y':
+            try:
+                os.remove(temp_file)
+                print(f"✅ Deleted {temp_file.name}\n")
+            except Exception as e:
+                print(f"⚠️  Could not delete file: {e}\n")
         
         return 0
         
