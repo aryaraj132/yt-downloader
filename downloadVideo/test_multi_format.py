@@ -25,7 +25,7 @@ import time
 # Configuration
 VIDEO_URL = "https://www.youtube.com/watch?v=RQDCbgn2vDM"
 START_TIME_STR = "0:10:20"
-END_TIME_STR = "0:14:20"
+END_TIME_STR = "0:12:20"
 RESOLUTIONS = ["2160p"]
 FORMATS = ["mp4"]
 CODEC = 'av1'
@@ -77,15 +77,15 @@ def download_and_process(url, start, end, resolution, format_ext):
     print()
     
     if not success:
-        print(f"❌ Download failed: {error}")
+        print(f"[ERROR] Download failed: {error}")
         return False
     
     if os.path.exists(file_path):
         size_mb = os.path.getsize(file_path) / (1024*1024)
-        print(f"✅ Success: {os.path.basename(file_path)} ({size_mb:.2f} MB)")
+        print(f"[OK] Success: {os.path.basename(file_path)} ({size_mb:.2f} MB)")
         return True
     else:
-        print(f"❌ File not found: {file_path}")
+        print(f"[ERROR] File not found: {file_path}")
         return False
 
 

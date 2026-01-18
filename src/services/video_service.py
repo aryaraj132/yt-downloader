@@ -60,8 +60,7 @@ class VideoService:
                 '--download-sections', f'*{start_time}-{end_time}',
                 '-o', download_path,
                 '--no-playlist',
-                '--newline',
-                '--progress',
+                '--newline'
             ]
             
             # Add FFmpeg location
@@ -70,7 +69,6 @@ class VideoService:
             
             logger.info(f"Starting download: {url} ({start_time}-{end_time}s)")
             
-            # Execute yt-dlp with progress monitoring
             process = subprocess.Popen(
                 cmd,
                 env=env,
@@ -81,27 +79,52 @@ class VideoService:
             )
             
             last_update = 0
-            current_phase = "Initializing"
+            total_duration = max(end_time - start_time, 1)
+            current_pass = 1
+            last_current_time = 0
+            current_phase = "Downloading (Pass 1)"
             
             for line in process.stdout:
                 line = line.strip()
                 
-                if '[download]' in line and '%' in line:
+                if 'frame=' in line and 'time=' in line:
                     now = time.time()
-                    if now - last_update >= 0.3:
-                        last_update = now
+                    # Parse time to detect resets (new pass) even if we throttle updates
+                    time_match = re.search(r'time=(\d+):(\d+):(\d+\.?\d*)', line)
+                    if time_match:
+                        hours = int(time_match.group(1))
+                        minutes = int(time_match.group(2))
+                        seconds = float(time_match.group(3))
+                        current_time = hours * 3600 + minutes * 60 + seconds
                         
-                        percent_match = re.search(r'(\d+\.?\d*)%', line)
-                        size_match = re.search(r'of\s+~?(\S+)', line)
-                        speed_match = re.search(r'at\s+(\S+/s)', line)
-                        eta_match = re.search(r'ETA\s+(\S+)', line)
+                        # Detect time reset indicating a new pass (e.g. Audio after Video)
+                        if last_current_time > 0 and current_time < last_current_time - 10:
+                            current_pass += 1
+                            current_phase = f"Downloading (Pass {current_pass})"
+                            last_current_time = 0 # Reset base
                         
-                        if percent_match:
+                        last_current_time = current_time
+
+                        if now - last_update >= 0.1:
+                            last_update = now
+                            
+                            speed_match = re.search(r'speed=\s*(\d+\.?\d*)x', line)
+                            size_match = re.search(r'size=\s*(\d+)KiB', line)
+                            
+                            percent = (current_time / total_duration * 100)
+                            percent = min(percent, 100)
+                            
+                            speed_str = f"{speed_match.group(1)}x" if speed_match else "?"
+                            size_str = f"{int(size_match.group(1)) / 1024:.1f}MB" if size_match else "?"
+                            
+                            eta_seconds = ((total_duration - current_time) / float(speed_match.group(1))) if speed_match and float(speed_match.group(1)) > 0 else 0
+                            eta_str = f"{int(eta_seconds//60)}:{int(eta_seconds%60):02d}" if eta_seconds > 0 else "?"
+                            
                             progress_data = {
-                                'percent': float(percent_match.group(1)),
-                                'size': size_match.group(1) if size_match else "unknown",
-                                'speed': speed_match.group(1) if speed_match else "?",
-                                'eta': eta_match.group(1) if eta_match else "?",
+                                'percent': percent,
+                                'size': size_str,
+                                'speed': speed_str,
+                                'eta': eta_str,
                                 'phase': current_phase
                             }
                             
@@ -117,18 +140,24 @@ class VideoService:
                             if progress_callback:
                                 progress_callback(progress_data)
                 
-                elif '[download]' in line and 'Destination:' in line:
-                    current_phase = "Downloading"
                 elif '[Merger]' in line or 'Merging' in line.lower():
-                    current_phase = "Merging"
                     if video_id:
                         from src.services.progress_cache import ProgressCache
                         ProgressCache.update_field(video_id, 'current_phase', 'merging')
                     if progress_callback:
-                        progress_callback({'phase': 'Merging', 'percent': 99})
+                        progress_callback({'phase': 'Merging', 'percent': 100})
             
-            # Wait for process to complete
             process.wait()
+            
+            # Ensure we report 100% at the end
+            if process.returncode == 0 and progress_callback:
+                progress_callback({
+                    'percent': 100,
+                    'size': "Complete",
+                    'speed': "-",
+                    'eta': "0:00",
+                    'phase': "Complete"
+                })
             
             if process.returncode != 0:
                 error_msg = f"yt-dlp failed (exit code {process.returncode})"
@@ -154,6 +183,15 @@ class VideoService:
                     encode_id=video_id,
                     progress_callback=progress_callback
                 )
+
+                if success:
+                    progress_callback({
+                    'percent': 100,
+                    'size': "Complete",
+                    'speed': "-",
+                    'eta': "0:00",
+                    'phase': "Complete"
+                    })
                 
                 try:
                     if os.path.exists(download_path):
