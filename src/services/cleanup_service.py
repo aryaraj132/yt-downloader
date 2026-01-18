@@ -1,4 +1,4 @@
-"""Cleanup service for automatic video file deletion."""
+
 import os
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -9,16 +9,14 @@ from src.models.video import Video
 
 logger = logging.getLogger(__name__)
 
-
 class CleanupService:
-    """Service for cleaning up expired video files."""
     
     def __init__(self):
         self.scheduler = BackgroundScheduler()
         self.is_running = False
     
     def cleanup_expired_videos(self):
-        """Delete expired video files and update database."""
+        
         try:
             logger.info("Running cleanup task for expired videos")
             
@@ -75,7 +73,7 @@ class CleanupService:
             logger.error(f"Cleanup task error: {str(e)}")
     
     def cleanup_failed_sessions(self):
-        """Cleanup expired sessions from database."""
+        
         try:
             from src.models.session import Session
             deleted_count = Session.cleanup_expired()
@@ -87,7 +85,7 @@ class CleanupService:
             logger.error(f"Session cleanup error: {str(e)}")
     
     def start(self):
-        """Start the cleanup scheduler."""
+        
         if self.is_running:
             logger.warning("Cleanup service is already running")
             return
@@ -121,23 +119,20 @@ class CleanupService:
             raise
     
     def stop(self):
-        """Stop the cleanup scheduler."""
+        
         if self.scheduler.running:
             self.scheduler.shutdown()
             self.is_running = False
             logger.info("Cleanup service stopped")
 
-
 # Global cleanup service instance
 cleanup_service = CleanupService()
 
-
 def init_cleanup() -> CleanupService:
-    """Initialize and start cleanup service."""
+    
     cleanup_service.start()
     return cleanup_service
 
-
 def get_cleanup() -> CleanupService:
-    """Get the cleanup service instance."""
+    
     return cleanup_service

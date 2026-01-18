@@ -1,4 +1,4 @@
-"""Video processing service using yt-dlp."""
+
 import os
 import sys
 import logging
@@ -16,12 +16,7 @@ from src.services import ffmpeg_utils_service
 
 logger = logging.getLogger(__name__)
 
-
 class VideoService:
-    """Service for downloading and processing YouTube videos (pure logic, no database).
-    
-    This service contains only business logic. For database operations, use VideoData layer.
-    \"\"\"
     
     @staticmethod
     def download_video_segment(
@@ -29,47 +24,41 @@ class VideoService:
         start_time: int,
         end_time: int,
         output_path: str,
-        format_preference: str = 'webm',
-        resolution_preference: str = 'best',
+        format_preference: str = 'mp4',
+        resolution_preference: str = '1080p',
         video_id: Optional[str] = None,
         progress_callback: Optional[Callable[[Dict], None]] = None
     ) -> Tuple[bool, Optional[str], Optional[str]]:
-        """
-        Download video segment using yt-dlp (database-agnostic).
         
-        Args:
-            url: YouTube video URL
-            start_time: Start time in seconds
-            end_time: End time in seconds
-            output_path: Path for output file
-            format_preference: Format (mp4, webm, best)
-            resolution_preference: Resolution (1080p, 720p, best)
-            video_id: Optional video ID for cache storage
-            progress_callback: Optional callback for progress updates
-            
-        Returns:
-            Tuple of (success, file_path, error_message)
-        """
         try:
-            # Ensure output directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
-            # Get FFmpeg location
             ffmpeg_path, ffmpeg_dir = ffmpeg_utils_service.get_ffmpeg_path()
             if not ffmpeg_path or not ffmpeg_dir:
                 return False, None, "FFmpeg not available"
             
-            # Build format selection string
-            format_string = VideoService._build_format_string(resolution_preference, format_preference)
+            resolution_height = VideoService._extract_resolution_height(resolution_preference)
+            needs_encoding = False
+            temp_webm_path = None
             
-            # Build yt-dlp command
+            if resolution_height >= 1440 and format_preference == 'mp4':
+                needs_encoding = True
+                temp_webm_path = output_path.replace('.mp4', '_temp.webm')
+                download_path = temp_webm_path
+                actual_format = 'webm'
+            else:
+                download_path = output_path
+                actual_format = format_preference
+            
+            format_string = VideoService._build_format_string(resolution_preference, actual_format)
+            
             cmd = [
                 sys.executable, '-m', 'yt_dlp',
                 url,
                 '-f', format_string,
-                '--merge-output-format', format_preference if format_preference != 'best' else 'mp4',
+                '--merge-output-format', actual_format,
                 '--download-sections', f'*{start_time}-{end_time}',
-                '-o', output_path,
+                '-o', download_path,
                 '--no-playlist',
                 '--newline',
                 '--progress',
@@ -97,14 +86,12 @@ class VideoService:
             for line in process.stdout:
                 line = line.strip()
                 
-                # Parse download progress
                 if '[download]' in line and '%' in line:
                     now = time.time()
                     if now - last_update >= 0.3:
                         last_update = now
                         
-                        # Extract progress info
-                        percent_match = re.search(r'(\d+\.\d+)%', line)
+                        percent_match = re.search(r'(\d+\.?\d*)%', line)
                         size_match = re.search(r'of\s+~?(\S+)', line)
                         speed_match = re.search(r'at\s+(\S+/s)', line)
                         eta_match = re.search(r'ETA\s+(\S+)', line)
@@ -118,7 +105,6 @@ class VideoService:
                                 'phase': current_phase
                             }
                             
-                            # Store in cache if video_id provided
                             if video_id:
                                 from src.services.progress_cache import ProgressCache
                                 ProgressCache.set_progress(video_id, {
@@ -128,11 +114,9 @@ class VideoService:
                                     'eta': progress_data['eta']
                                 })
                             
-                            # Call user callback if provided
                             if progress_callback:
                                 progress_callback(progress_data)
                 
-                # Track phase changes
                 elif '[download]' in line and 'Destination:' in line:
                     current_phase = "Downloading"
                 elif '[Merger]' in line or 'Merging' in line.lower():
@@ -151,14 +135,41 @@ class VideoService:
                 logger.error(error_msg)
                 return False, None, error_msg
             
-            # Verify file was created
-            if not os.path.exists(output_path):
+            if not os.path.exists(download_path):
                 error_msg = "Downloaded file not found"
                 logger.error(error_msg)
                 return False, None, error_msg
             
-            logger.info(f"Download successful: {output_path}")
-            return True, output_path, None
+            if needs_encoding:
+                from src.services.encoding_service import EncodingService
+                
+                logger.info(f"Encoding {download_path} to {output_path}")
+                
+                success, error = EncodingService.encode_video_to_mp4(
+                    download_path,
+                    output_path,
+                    video_codec='h265',
+                    quality_preset='lossless',
+                    use_gpu=True,
+                    encode_id=video_id,
+                    progress_callback=progress_callback
+                )
+                
+                try:
+                    if os.path.exists(download_path):
+                        os.remove(download_path)
+                        logger.info(f"Removed temp file: {download_path}")
+                except Exception as e:
+                    logger.warning(f"Could not remove temp file: {e}")
+                
+                if not success:
+                    return False, None, f"Encoding failed: {error}"
+                
+                logger.info(f"Encoding successful: {output_path}")
+                return True, output_path, None
+            else:
+                logger.info(f"Download successful: {output_path}")
+                return True, download_path, None
             
         except subprocess.TimeoutExpired:
             error_msg = "Download timeout"
@@ -173,17 +184,20 @@ class VideoService:
             return False, None, error_msg
     
     @staticmethod
-    def _build_format_string(resolution: str, format_ext: str) -> str:
-        """
-        Build yt-dlp format selection string based on preferences.
+    def _extract_resolution_height(resolution: str) -> int:
+
+        if resolution in ['best', 'worst']:
+            return 0
         
-        Args:
-            resolution: Preferred resolution (e.g., '1080p', '720p', 'best')
-            format_ext: Preferred format extension (e.g., 'mp4', 'webm', 'best')
-            
-        Returns:
-            Format string for yt-dlp -f parameter
-        """
+        match = re.search(r'(\d+)p?', resolution)
+        if match:
+            return int(match.group(1))
+        
+        return 0
+    
+    @staticmethod
+    def _build_format_string(resolution: str, format_ext: str) -> str:
+        
         # Handle special cases
         if resolution == 'best' and format_ext == 'best':
             return 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best'
@@ -217,18 +231,9 @@ class VideoService:
         # Fallback
         return 'bestvideo+bestaudio/best'
 
-    
     @staticmethod
     def get_video_info(url: str) -> Optional[Dict]:
-        """
-        Get video information using yt-dlp without downloading.
         
-        Args:
-            url: YouTube video URL
-            
-        Returns:
-            Video metadata dict or None
-        """
         try:
             cmd = [
                 sys.executable, '-m', 'yt_dlp',

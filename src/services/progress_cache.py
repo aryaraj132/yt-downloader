@@ -1,10 +1,4 @@
-"""Progress cache service - stores video processing progress in Redis or local dict.
 
-This service provides a cache layer for storing real-time progress data that:
-- Doesn't need persistence (temporary progress data)
-- Needs fast read/write (polled frequently)
-- Works across multiple servers (if using Redis)
-"""
 import logging
 from typing import Optional, Dict
 
@@ -40,30 +34,11 @@ except ImportError:
 # Local fallback dict
 _local_progress_cache = {}
 
-
 class ProgressCache:
-    """Cache service for storing video processing progress."""
     
     @staticmethod
     def set_progress(video_id: str, progress_data: Dict) -> bool:
-        """
-        Store progress data for a video.
         
-        Args:
-            video_id: Video document ID
-            progress_data: Dict containing progress info
-                {
-                    'download_progress': 0-100,
-                    'encoding_progress': 0-100,
-                    'current_phase': 'downloading|encoding|initializing',
-                    'speed': '2.3x',
-                    'eta': '03:24',
-                    ...
-                }
-        
-        Returns:
-            bool: Success status
-        """
         try:
             if REDIS_AVAILABLE and redis_client:
                 # Store in Redis with 1 hour expiry
@@ -86,15 +61,7 @@ class ProgressCache:
     
     @staticmethod
     def get_progress(video_id: str) -> Optional[Dict]:
-        """
-        Get progress data for a video.
         
-        Args:
-            video_id: Video document ID
-            
-        Returns:
-            Dict with progress data or None if not found
-        """
         try:
             if REDIS_AVAILABLE and redis_client:
                 # Get from Redis
@@ -128,15 +95,7 @@ class ProgressCache:
     
     @staticmethod
     def delete_progress(video_id: str) -> bool:
-        """
-        Delete progress data for a video (e.g., when completed or failed).
         
-        Args:
-            video_id: Video document ID
-            
-        Returns:
-            bool: Success status
-        """
         try:
             if REDIS_AVAILABLE and redis_client:
                 key = f"video:progress:{video_id}"
@@ -151,17 +110,7 @@ class ProgressCache:
     
     @staticmethod
     def update_field(video_id: str, field: str, value) -> bool:
-        """
-        Update a single field in progress data.
         
-        Args:
-            video_id: Video document ID
-            field: Field name to update
-            value: New value
-            
-        Returns:
-            bool: Success status
-        """
         try:
             if REDIS_AVAILABLE and redis_client:
                 key = f"video:progress:{video_id}"

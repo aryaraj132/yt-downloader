@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 # Configuration - Use same URL as test_download.py
-VIDEO_URL = "https://www.youtube.com/watch?v=5135omtMu40"
+VIDEO_URL = "https://www.youtube.com/watch?v=RQDCbgn2vDM"
 
 # Add project root to path
 script_dir = Path(__file__).parent

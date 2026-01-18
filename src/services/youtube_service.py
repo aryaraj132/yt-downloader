@@ -1,4 +1,4 @@
-"""YouTube service for video ID validation and metadata extraction."""
+
 import logging
 import re
 from typing import Optional, Dict, Tuple
@@ -7,9 +7,7 @@ import json
 
 logger = logging.getLogger(__name__)
 
-
 class YouTubeService:
-    """Service for YouTube-specific operations."""
     
     # YouTube video ID format: 11 characters, alphanumeric, underscore, and hyphen
     VIDEO_ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{11}$')
@@ -23,15 +21,7 @@ class YouTubeService:
     
     @staticmethod
     def validate_video_id(video_id: str) -> Tuple[bool, Optional[str]]:
-        """
-        Validate YouTube video ID format.
         
-        Args:
-            video_id: Video ID string to validate
-            
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
         if not video_id:
             return False, "Video ID cannot be empty"
         
@@ -45,15 +35,7 @@ class YouTubeService:
     
     @staticmethod
     def parse_video_id_from_url(url: str) -> Optional[str]:
-        """
-        Extract video ID from various YouTube URL formats.
         
-        Args:
-            url: YouTube URL
-            
-        Returns:
-            Video ID if found, None otherwise
-        """
         if not url:
             return None
         
@@ -72,28 +54,12 @@ class YouTubeService:
     
     @staticmethod
     def construct_video_url(video_id: str) -> str:
-        """
-        Build standard YouTube URL from video ID.
         
-        Args:
-            video_id: YouTube video ID
-            
-        Returns:
-            Full YouTube URL
-        """
         return f"https://www.youtube.com/watch?v={video_id}"
     
     @staticmethod
     def get_video_info(video_id: str) -> Optional[Dict]:
-        """
-        Fetch video metadata using yt-dlp.
         
-        Args:
-            video_id: YouTube video ID
-            
-        Returns:
-            Dictionary with video metadata or None if failed
-        """
         try:
             # Validate video ID first
             is_valid, error = YouTubeService.validate_video_id(video_id)
@@ -156,15 +122,7 @@ class YouTubeService:
     
     @staticmethod
     def get_available_formats(video_id: str) -> Optional[list]:
-        """
-        Get available high-quality resolutions (720p and above) for a video.
         
-        Args:
-            video_id: YouTube video ID
-            
-        Returns:
-            List of available resolutions (e.g., ["1440p", "1080p", "720p"]) or None if failed
-        """
         try:
             import sys
             url = YouTubeService.construct_video_url(video_id)

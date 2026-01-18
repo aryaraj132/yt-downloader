@@ -1,9 +1,4 @@
-"""Video encoding service using FFmpeg.
 
-This service provides functionality to encode/convert various video formats
-to MP4 with configurable codecs and quality settings, GPU acceleration support,
-and real-time progress tracking.
-"""
 import os
 import logging
 import subprocess
@@ -19,7 +14,6 @@ from src.models.video import Video, VideoStatus
 from src.services import ffmpeg_utils_service
 
 logger = logging.getLogger(__name__)
-
 
 # GPU Encoder configurations
 GPU_ENCODER_CONFIGS = {
@@ -84,21 +78,11 @@ AUDIO_CONFIG = {
     'sample_rate': '48000'
 }
 
-
 class EncodingService:
-    """Service for encoding videos to MP4 with GPU/CPU codecs and progress tracking.\"""
     
     @staticmethod
     def validate_video_file(file_path: str) -> Tuple[bool, Optional[str]]:
-        """
-        Validate if a file is a valid video.
         
-        Args:
-            file_path: Path to video file
-            
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
         if not os.path.exists(file_path):
             return False, "File not found"
         
@@ -140,15 +124,7 @@ class EncodingService:
     
     @staticmethod
     def get_video_metadata(file_path: str) -> Optional[Dict]:
-        """
-        Extract video metadata using ffprobe.
         
-        Args:
-            file_path: Path to video file
-            
-        Returns:
-            Dictionary containing video metadata or None
-        """
         ffmpeg_path, _ = ffmpeg_utils_service.get_ffmpeg_path()
         if not ffmpeg_path:
             logger.error("FFmpeg not available")
@@ -208,22 +184,7 @@ class EncodingService:
         encode_id: Optional[str] = None,
         progress_callback: Optional[Callable[[Dict], None]] = None
     ) -> Tuple[bool, Optional[str]]:
-        """
-        Encode video to MP4 format with GPU/CPU codec and real-time progress.
         
-        Args:
-            input_path: Path to input video file
-            output_path: Path for output MP4 file
-            video_codec: Video codec (h264, h265, av1)
-            quality_preset: Quality preset (lossless, high, medium)
-            use_gpu: Try GPU encoding first
-            encode_id: Optional encode request ID for database progress updates
-            progress_callback: Optional callback for progress updates
-                              Called with dict: {'percent': float, 'fps': float, 'speed': str, 'eta': str}
-            
-        Returns:
-            Tuple of (success, error_message)
-        """
         try:
             ffmpeg_path, _ = ffmpeg_utils_service.get_ffmpeg_path()
             if not ffmpeg_path:
@@ -421,12 +382,7 @@ class EncodingService:
     
     @staticmethod
     def get_supported_codecs() -> Dict[str, list]:
-        """
-        Get list of supported codecs and quality presets.
         
-        Returns:
-            Dictionary mapping codec names to their available presets
-        """
         return {
             codec: list(config['quality_presets'].keys())
             for codec, config in CPU_CODEC_CONFIGS.items()

@@ -1,4 +1,4 @@
-"""Redis cache service for session management."""
+
 import json
 import logging
 from typing import Optional, Any
@@ -9,21 +9,19 @@ from src.config import Config
 
 logger = logging.getLogger(__name__)
 
-
 class CacheService:
-    """Redis cache service for managing sessions and temporary data."""
     
     _instance = None
     _client: Optional[redis.Redis] = None
     
     def __new__(cls):
-        """Singleton pattern to ensure single Redis connection."""
+        
         if cls._instance is None:
             cls._instance = super(CacheService, cls).__new__(cls)
         return cls._instance
     
     def connect(self):
-        """Establish connection to Redis."""
+        
         try:
             if self._client is None:
                 self._client = redis.Redis(
@@ -46,15 +44,7 @@ class CacheService:
             raise
     
     def get(self, key: str) -> Optional[Any]:
-        """
-        Get value from cache.
         
-        Args:
-            key: Cache key
-            
-        Returns:
-            Cached value or None if not found
-        """
         try:
             value = self._client.get(key)
             if value:
@@ -73,17 +63,7 @@ class CacheService:
             return None
     
     def set(self, key: str, value: Any, expiration: Optional[int] = None) -> bool:
-        """
-        Set value in cache.
         
-        Args:
-            key: Cache key
-            value: Value to cache (will be JSON serialized if dict/list)
-            expiration: Expiration time in seconds (optional)
-            
-        Returns:
-            True if successful, False otherwise
-        """
         try:
             # Serialize value if it's a dict or list
             if isinstance(value, (dict, list)):
@@ -103,15 +83,7 @@ class CacheService:
             return False
     
     def delete(self, key: str) -> bool:
-        """
-        Delete value from cache.
         
-        Args:
-            key: Cache key
-            
-        Returns:
-            True if successful, False otherwise
-        """
         try:
             self._client.delete(key)
             return True
@@ -124,15 +96,7 @@ class CacheService:
             return False
     
     def exists(self, key: str) -> bool:
-        """
-        Check if key exists in cache.
         
-        Args:
-            key: Cache key
-            
-        Returns:
-            True if key exists, False otherwise
-        """
         try:
             return bool(self._client.exists(key))
         except RedisError as e:
@@ -143,61 +107,32 @@ class CacheService:
             return False
     
     def get_session(self, session_id: str) -> Optional[dict]:
-        """
-        Get session data from cache.
         
-        Args:
-            session_id: Session ID
-            
-        Returns:
-            Session data dict or None
-        """
         return self.get(f"session:{session_id}")
     
     def set_session(self, session_id: str, session_data: dict, expiration: int) -> bool:
-        """
-        Store session data in cache.
         
-        Args:
-            session_id: Session ID
-            session_data: Session data to store
-            expiration: Expiration time in seconds
-            
-        Returns:
-            True if successful
-        """
         return self.set(f"session:{session_id}", session_data, expiration)
     
     def delete_session(self, session_id: str) -> bool:
-        """
-        Delete session from cache.
         
-        Args:
-            session_id: Session ID
-            
-        Returns:
-            True if successful
-        """
         return self.delete(f"session:{session_id}")
     
     def close(self):
-        """Close Redis connection."""
+        
         if self._client:
             self._client.close()
             self._client = None
             logger.info("Redis connection closed")
 
-
 # Global cache service instance
 cache_service = CacheService()
 
-
 def init_cache():
-    """Initialize cache connection. Call this on application startup."""
+    
     cache_service.connect()
     return cache_service
 
-
 def get_cache() -> CacheService:
-    """Get the cache service instance."""
+    
     return cache_service

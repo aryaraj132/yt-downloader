@@ -403,7 +403,6 @@ def list_user_videos():
         
         return jsonify({'videos': video_list}), 200
         
-    except Exception as e:
         logger.error(f"List videos error: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
@@ -459,3 +458,60 @@ def get_available_formats(video_id):
         logger.error(f"Get available formats error: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 
+
+@video_bp.route('/resolutions', methods=['POST'])
+def get_available_resolutions():
+    """
+    Get available resolutions for a YouTube video URL.
+    Public endpoint - no authentication required.
+    
+    Request body:
+        {
+            "url": "https://youtube.com/watch?v=..."
+        }
+    
+    Returns:
+        {
+            "video_id": "dQw4w9WgXcQ",
+            "url": "https://youtube.com/watch?v=dQw4w9WgXcQ",
+            "resolutions": ["1440p", "1080p", "720p"]
+        }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'Invalid request body'}), 400
+        
+        url = data.get('url')
+        
+        if not url:
+            return jsonify({'error': 'URL is required'}), 400
+        
+        # Validate YouTube URL
+        is_valid_url, url_error = validate_youtube_url(url)
+        if not is_valid_url:
+            return jsonify({'error': url_error}), 400
+        
+        # Parse video ID from URL
+        video_id = YouTubeService.parse_video_id_from_url(url)
+        if not video_id:
+            return jsonify({'error': 'Could not extract YouTube video ID from URL'}), 400
+        
+        # Get available formats
+        resolutions = YouTubeService.get_available_formats(video_id)
+        
+        if resolutions is None:
+            return jsonify({'error': 'Failed to retrieve available resolutions'}), 500
+        
+        logger.info(f"Retrieved available resolutions for video {video_id}")
+        
+        return jsonify({
+            'video_id': video_id,
+            'url': url,
+            'resolutions': resolutions if resolutions else []
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Get available resolutions error: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500

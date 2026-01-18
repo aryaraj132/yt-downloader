@@ -1,12 +1,12 @@
 """
 Configuration loader for YouTube Downloader application.
-Loads environment variables from Firebase Remote Config and initializes the application.
+Loads environment variables and initializes Firebase Admin SDK.
 """
 import os
 import logging
 from dotenv import load_dotenv
 import firebase_admin
-from firebase_admin import credentials, remote_config
+from firebase_admin import credentials
 
 # Load .env file for local development
 load_dotenv()

@@ -248,13 +248,13 @@ def main():
     # - h264: Fast, universal compatibility (recommended for most use cases)
     # - h265: Better compression than h264, slower encoding
     # - av1: Best compression (30-50% smaller), slowest encoding, requires newer hardware for playback
-    CODEC = 'h264'
+    CODEC = 'av1'
     
     # Quality options: 'lossless' or 'high'
     QUALITY = 'lossless'
     
     # Set to True to only encode an existing file (skips download)
-    ONLY_ENCODE = False
+    ONLY_ENCODE = True
     
     # Setup paths
     script_dir = Path(__file__).parent

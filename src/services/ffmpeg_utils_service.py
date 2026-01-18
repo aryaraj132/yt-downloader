@@ -1,11 +1,4 @@
-"""FFmpeg utilities service.
 
-Centralized utilities for FFmpeg operations including:
-- FFmpeg path resolution
-- GPU encoder detection
-- Video duration extraction
-- Timestamp conversion
-"""
 import os
 import sys
 import re
@@ -17,23 +10,8 @@ from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-
 def timestamp_to_seconds(timestamp) -> int:
-    """
-    Convert timestamp in format 'hr:min:sec' to seconds.
-    Also accepts 'min:sec' or just 'sec'.
     
-    Examples:
-        '1:44:00' -> 6240
-        '44:00' -> 2640
-        '90' -> 90
-    
-    Args:
-        timestamp: Time in various formats
-        
-    Returns:
-        Integer seconds
-    """
     if isinstance(timestamp, (int, float)):
         return int(timestamp)
     
@@ -50,14 +28,8 @@ def timestamp_to_seconds(timestamp) -> int:
     else:
         raise ValueError(f"Invalid timestamp format: {timestamp}")
 
-
 def get_ffmpeg_path() -> Tuple[Optional[str], Optional[str]]:
-    """
-    Get FFmpeg binary location.
     
-    Returns:
-        Tuple of (ffmpeg_path, ffmpeg_dir) or (None, None) if not found
-    """
     # Check project bin directory first
     project_root = Path(__file__).parent.parent.parent
     bin_dir = project_root / 'bin'
@@ -78,15 +50,8 @@ def get_ffmpeg_path() -> Tuple[Optional[str], Optional[str]]:
         logger.warning("FFmpeg not found in bin/ and imageio-ffmpeg not installed")
         return None, None
 
-
 def setup_ffmpeg() -> Tuple[Optional[str], Optional[str]]:
-    """
-    Setup FFmpeg so yt-dlp can find it.
-    Ensures FFmpeg is available and returns paths.
     
-    Returns:
-        Tuple of (ffmpeg_path, ffmpeg_dir) or (None, None) if setup fails
-    """
     logger.info("Setting up FFmpeg...")
     
     ffmpeg_path, ffmpeg_dir = get_ffmpeg_path()
@@ -143,20 +108,8 @@ def setup_ffmpeg() -> Tuple[Optional[str], Optional[str]]:
     logger.error("❌ FFmpeg not available")
     return None, None
 
-
 def get_video_duration(ffmpeg_path: str, video_path: str) -> Optional[float]:
-    """
-    Get the duration of a video file in seconds using ffprobe or ffmpeg.
-    Returns None if duration cannot be determined.
-    This should be very fast (under 1 second) as it only reads metadata.
     
-    Args:
-        ffmpeg_path: Path to FFmpeg executable
-        video_path: Path to video file
-        
-    Returns:
-        Duration in seconds or None
-    """
     try:
         # ffprobe is usually in the same directory as ffmpeg
         ffprobe_path = str(Path(ffmpeg_path).parent / ('ffprobe.exe' if os.name == 'nt' else 'ffprobe'))
@@ -198,19 +151,8 @@ def get_video_duration(ffmpeg_path: str, video_path: str) -> Optional[float]:
         logger.warning(f"⚠️  Could not determine video duration: {e}")
         return None
 
-
 def detect_gpu_encoder(ffmpeg_path: str, codec: str = 'h264') -> Tuple[Optional[str], Optional[str]]:
-    """
-    Detect available GPU encoders for the given codec by actually testing them.
-    Returns tuple: (encoder_name, encoder_type) or (None, None) if no GPU available.
     
-    Args:
-        ffmpeg_path: Path to FFmpeg executable
-        codec: Video codec ('h264', 'h265', 'av1')
-        
-    Returns:
-        Tuple of (encoder_name, gpu_type) or (None, None)
-    """
     encoders_to_test = []
     
     if codec == 'h264':
