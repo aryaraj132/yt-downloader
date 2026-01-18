@@ -54,6 +54,7 @@ class VideoService:
             
             cmd = [
                 sys.executable, '-m', 'yt_dlp',
+                '--js-runtimes', 'node',
                 url,
                 '-f', format_string,
                 '--merge-output-format', actual_format,
