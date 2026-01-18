@@ -173,6 +173,11 @@ All in `components/ui/`:
 - Logout button (authenticated)
 - Sticky with backdrop blur
 
+#### 8. **API Wrappers & Integrations** ✅
+- **Cookie Support**: `videoService` now accepts browser cookies for age-gated downloads.
+- **Google OAuth**: `authService` now supports Google login init and callback handling.
+- **Backend Alignment**: Updated backend endpoints to support secure cookie passing.
+
 ---
 
 ## 🛠 Technology Stack
@@ -234,6 +239,7 @@ All in `components/ui/`:
    - `register()`, `login()`, `logout()`
    - `changePassword()`, `getCurrentUser()`
    - `getPublicToken()` for public API access
+   - `initiateGoogleLogin()`, `handleGoogleCallback()` - Google OAuth
 
 2. **Video Service** ([services/videoService.ts](file:///d:/yt-downloader/frontend/services/videoService.ts)):
    - `saveVideoInfo()` - Save download request
@@ -241,7 +247,7 @@ All in `components/ui/`:
    - `downloadVideo()` - Download with blob response
    - `getVideoStatus()` - Poll for progress
    - `listUserVideos()` - Get user's videos
-   - `getAvailableFormats()` - Get format details
+   - `getAvailableFormats()` - Get format details (supports cookies)
 
 3. **Encode Service** ([services/encodeService.ts](file:///d:/yt-downloader/frontend/services/encodeService.ts)):
    - `uploadVideo()` - FormData upload

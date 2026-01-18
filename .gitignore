@@ -83,7 +83,7 @@ htmlcov/
 *.mpg
 *.mpeg
 *.3gp
-*.ts
+
 *.mts
 *.m2ts
 *.vob

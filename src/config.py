@@ -67,6 +67,11 @@ class Config:
     # YouTube API (Optional - for metadata fetching if needed)
     YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY', '')  # Optional
 
+    # Google OAuth
+    GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+    GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+    GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI')
+
     
     @classmethod
     def validate(cls):

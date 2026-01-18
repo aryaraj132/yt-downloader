@@ -27,9 +27,11 @@ class VideoService:
         format_preference: str = 'mp4',
         resolution_preference: str = '1080p',
         video_id: Optional[str] = None,
-        progress_callback: Optional[Callable[[Dict], None]] = None
+        progress_callback: Optional[Callable[[Dict], None]] = None,
+        cookies_content: Optional[str] = None
     ) -> Tuple[bool, Optional[str], Optional[str]]:
         
+        cookies_file = None
         try:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
@@ -63,6 +65,19 @@ class VideoService:
                 '--no-playlist',
                 '--newline'
             ]
+
+            if cookies_content:
+                # Create detailed timestamped filename to avoid collisions
+                cookies_filename = f"cookies_{uuid.uuid4()}_{int(time.time())}.txt"
+                cookies_file = os.path.join(os.path.dirname(output_path), cookies_filename)
+                
+                # Write cookies to file
+                with open(cookies_file, 'w', encoding='utf-8') as f:
+                    f.write(cookies_content)
+                
+                # securely pass cookies to yt-dlp
+                cmd.extend(['--cookies', cookies_file])
+                logger.info(f"Using provided cookies for download: {cookies_file}")
             
             # Add FFmpeg location
             env = os.environ.copy()
@@ -221,6 +236,14 @@ class VideoService:
             import traceback
             traceback.print_exc()
             return False, None, error_msg
+        
+        finally:
+             if cookies_file and os.path.exists(cookies_file):
+                try:
+                    os.remove(cookies_file)
+                    logger.info(f"Removed cookies file: {cookies_file}")
+                except Exception as e:
+                    logger.warning(f"Could not remove cookies file: {e}")
     
     @staticmethod
     def _extract_resolution_height(resolution: str) -> int:

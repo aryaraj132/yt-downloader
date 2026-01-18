@@ -149,6 +149,40 @@ class User:
             return False
     
     @staticmethod
+    def update_google_tokens(user_id: str, tokens: Dict) -> bool:
+        """
+        Update user's Google OAuth tokens.
+        
+        Args:
+            user_id: User ID as string
+            tokens: Dictionary containing access_token, refresh_token, expiry, etc.
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            db = get_database()
+            
+            result = db.users.update_one(
+                {'_id': ObjectId(user_id)},
+                {
+                    '$set': {
+                        'google_tokens': tokens,
+                        'updated_at': datetime.utcnow()
+                    }
+                }
+            )
+            
+            if result.modified_count > 0:
+                logger.info(f"Google tokens updated for user: {user_id}")
+                return True
+            return True # Return true even if not modified (e.g. tokens same)
+            
+        except Exception as e:
+            logger.error(f"Failed to update google tokens: {str(e)}")
+            return False
+    
+    @staticmethod
     def email_exists(email: str) -> bool:
         """
         Check if email already exists in database.

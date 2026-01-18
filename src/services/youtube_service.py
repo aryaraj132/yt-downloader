@@ -58,8 +58,9 @@ class YouTubeService:
         return f"https://www.youtube.com/watch?v={video_id}"
     
     @staticmethod
-    def get_video_info(video_id: str) -> Optional[Dict]:
+    def get_video_info(video_id: str, cookies_content: Optional[str] = None) -> Optional[Dict]:
         
+        cookies_file = None
         try:
             # Validate video ID first
             is_valid, error = YouTubeService.validate_video_id(video_id)
@@ -77,6 +78,22 @@ class YouTubeService:
                 '--skip-download',
                 url
             ]
+
+            if cookies_content:
+                import uuid
+                import time
+                import os
+                # Create detailed timestamped filename to avoid collisions - ideally this should be a utility method
+                cookies_filename = f"cookies_info_{uuid.uuid4()}_{int(time.time())}.txt"
+                # Use a temp directory or app root for these temporary files
+                cookies_file = os.path.join(os.getcwd(), cookies_filename)
+                
+                # Write cookies to file
+                with open(cookies_file, 'w', encoding='utf-8') as f:
+                    f.write(cookies_content)
+                
+                # securely pass cookies to yt-dlp
+                cmd.extend(['--cookies', cookies_file])
             
             result = subprocess.run(
                 cmd,
@@ -119,12 +136,23 @@ class YouTubeService:
         except Exception as e:
             logger.error(f"Failed to get video info: {str(e)}")
             return None
+        finally:
+            if cookies_file and os.path.exists(cookies_file):
+                try:
+                    os.remove(cookies_file)
+                except Exception:
+                    pass
     
     @staticmethod
-    def get_available_formats(video_id: str) -> Optional[list]:
+    def get_available_formats(video_id: str, cookies_content: Optional[str] = None) -> Optional[list]:
         
+        cookies_file = None
         try:
             import sys
+            import uuid
+            import time
+            import os
+            
             url = YouTubeService.construct_video_url(video_id)
             
             # Use yt-dlp to get video info with formats
@@ -135,6 +163,18 @@ class YouTubeService:
                 '--skip-download',
                 url
             ]
+
+            if cookies_content:
+                # Create detailed timestamped filename to avoid collisions
+                cookies_filename = f"cookies_fmt_{uuid.uuid4()}_{int(time.time())}.txt"
+                cookies_file = os.path.join(os.getcwd(), cookies_filename)
+                
+                # Write cookies to file
+                with open(cookies_file, 'w', encoding='utf-8') as f:
+                    f.write(cookies_content)
+                
+                # securely pass cookies to yt-dlp
+                cmd.extend(['--cookies', cookies_file])
             
             result = subprocess.run(
                 cmd,
@@ -170,3 +210,9 @@ class YouTubeService:
         except Exception as e:
             logger.error(f"Failed to get available formats: {str(e)}")
             return None
+        finally:
+            if cookies_file and os.path.exists(cookies_file):
+                try:
+                    os.remove(cookies_file)
+                except Exception:
+                    pass

@@ -284,3 +284,130 @@ def get_current_user():
         }
     """
     return jsonify({'user': g.user}), 200
+
+# Google OAuth Routes
+
+@auth_bp.route('/google/login', methods=['GET'])
+def google_login():
+    """
+    Initiate Google OAuth login flow.
+    """
+    if not Config.GOOGLE_CLIENT_ID or not Config.GOOGLE_REDIRECT_URI:
+        return jsonify({'error': 'Google OAuth not configured'}), 500
+        
+    import urllib.parse
+    
+    params = {
+        'client_id': Config.GOOGLE_CLIENT_ID,
+        'redirect_uri': Config.GOOGLE_REDIRECT_URI,
+        'response_type': 'code',
+        'scope': 'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/userinfo.email openid',
+        'access_type': 'offline',
+        'prompt': 'consent'
+    }
+    
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
+    
+    return jsonify({'auth_url': auth_url}), 200
+
+
+@auth_bp.route('/google/callback', methods=['GET', 'POST'])
+def google_callback():
+    """
+    Handle Google OAuth callback.
+    Exchanges code for tokens and logs in/registers user.
+    """
+    try:
+        # Handle both GET (redirect) and POST (manual code submission)
+        if request.method == 'POST':
+            data = request.get_json()
+            code = data.get('code')
+        else:
+            code = request.args.get('code')
+            
+        if not code:
+            return jsonify({'error': 'Authorization code is required'}), 400
+            
+        if not Config.GOOGLE_CLIENT_ID or not Config.GOOGLE_CLIENT_SECRET or not Config.GOOGLE_REDIRECT_URI:
+            return jsonify({'error': 'Google OAuth not configured'}), 500
+            
+        # Exchange code for tokens
+        import requests
+        token_url = "https://oauth2.googleapis.com/token"
+        token_data = {
+            'code': code,
+            'client_id': Config.GOOGLE_CLIENT_ID,
+            'client_secret': Config.GOOGLE_CLIENT_SECRET,
+            'redirect_uri': Config.GOOGLE_REDIRECT_URI,
+            'grant_type': 'authorization_code'
+        }
+        
+        response = requests.post(token_url, data=token_data)
+        
+        if response.status_code != 200:
+            logger.error(f"Failed to exchange token: {response.text}")
+            return jsonify({'error': 'Failed to exchange authorization code'}), 400
+            
+        tokens = response.json()
+        
+        # Get user info
+        user_info_response = requests.get(
+            'https://www.googleapis.com/oauth2/v2/userinfo',
+            headers={'Authorization': f"Bearer {tokens['access_token']}"}
+        )
+        
+        if user_info_response.status_code != 200:
+            return jsonify({'error': 'Failed to get user info'}), 400
+            
+        user_info = user_info_response.json()
+        email = user_info.get('email')
+        
+        if not email:
+            return jsonify({'error': 'Email not provided by Google'}), 400
+            
+        # Find or create user
+        user = User.find_by_email(email)
+        user_id = None
+        
+        if user:
+            user_id = str(user['_id'])
+            # Update tokens
+            User.update_google_tokens(user_id, tokens)
+        else:
+            # Create new user with random password (they can reset it later or use google login)
+            import uuid
+            random_password = str(uuid.uuid4())
+            user_id = User.create_user(email, random_password)
+            if user_id:
+                User.update_google_tokens(user_id, tokens)
+        
+        if not user_id:
+            return jsonify({'error': 'Failed to create/update user'}), 500
+            
+        # Create session
+        # Generate private token
+        from src.models.session import Session
+        token = generate_private_token(user_id, "temp_session_id")
+        session_id = Session.create_session(user_id, token)
+        
+        # Regenerate token with actual session_id
+        token = generate_private_token(user_id, session_id)
+        
+        # Update session with new token
+        from src.services.db_service import get_database
+        from bson import ObjectId
+        db = get_database()
+        db.sessions.update_one(
+            {'_id': ObjectId(session_id)},
+            {'$set': {'token': token}}
+        )
+        
+        return jsonify({
+            'message': 'Login successful',
+            'token': token, 
+            'user': {'email': email, 'id': user_id}
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Google callback error: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500

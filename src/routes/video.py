@@ -234,6 +234,7 @@ def download_video(video_id):
         data = request.get_json() or {}
         format_pref = data.get('format_preference', Config.DEFAULT_VIDEO_FORMAT)
         resolution_pref = data.get('resolution_preference', Config.DEFAULT_VIDEO_RESOLUTION)
+        cookies = data.get('cookies') # Extract cookies from request
         
         # Validate preferences if provided
         if format_pref != Config.DEFAULT_VIDEO_FORMAT:
@@ -287,7 +288,8 @@ def download_video(video_id):
         success, file_path, error = VideoData.download_video(
             video_id,
             format_preference=format_pref,
-            resolution_preference=resolution_pref
+            resolution_preference=resolution_pref,
+            cookies_content=cookies
         )
         
         if not success:
@@ -407,6 +409,68 @@ def list_user_videos():
         return jsonify({'error': 'Internal server error'}), 500
 
 
+@video_bp.route('/formats', methods=['POST'])
+@require_private_token
+def get_available_formats_post():
+    """
+    Get available formats and resolutions for a video with optional cookies.
+    Requires private authentication token.
+    
+    Request body:
+        {
+            "video_id": "...",
+            "cookies": "..."
+        }
+    
+    Returns:
+        {
+            "video_id": "...",
+            "resolutions": [...],
+            "extensions": [...],
+            "formats": {...}
+        }
+    """
+    try:
+        data = request.get_json() or {}
+        video_id = data.get('video_id')
+        cookies = data.get('cookies')
+        
+        if not video_id:
+            return jsonify({'error': 'Video ID is required'}), 400
+            
+        # First check if it's a video document ID
+        video = Video.find_by_id(video_id)
+        
+        if video:
+            # Verify ownership
+            if not Video.verify_ownership(video_id, g.user_id):
+                return jsonify({'error': 'Unauthorized access to video'}), 403
+            
+            # Extract YouTube video ID from URL
+            yt_video_id = YouTubeService.parse_video_id_from_url(video['url'])
+            if not yt_video_id:
+                return jsonify({'error': 'Could not extract YouTube video ID from URL'}), 400
+        else:
+            # Assume it's a YouTube video ID
+            is_valid, error = validate_video_id(video_id)
+            if not is_valid:
+                return jsonify({'error': error}), 400
+            yt_video_id = video_id
+        
+        # Get available formats using YouTube service
+        formats_info = YouTubeService.get_available_formats(yt_video_id, cookies_content=cookies)
+        
+        if not formats_info:
+            return jsonify({'error': 'Failed to retrieve available formats'}), 500
+        
+        logger.info(f"Retrieved available formats for video {yt_video_id}")
+        return jsonify(formats_info), 200
+        
+    except Exception as e:
+        logger.error(f"Get available formats error: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
 @video_bp.route('/formats/<video_id>', methods=['GET'])
 @require_private_token
 def get_available_formats(video_id):
@@ -425,6 +489,13 @@ def get_available_formats(video_id):
             "formats": {...}
         }
     """
+    # ... legacy implementation or redirect ...
+    # Reusing the logic via internal call or just duplication for now to avoid breaking changes if any
+    # But since frontend is updated, we can just keep this for backward compatibility or remove it.
+    # I'll keep it as is, but implemented using the new helper if I refactored.
+    # For now, I'll just leave the existing implementation below if I didn't replace it.
+    # Wait, I am replacing the existing block. I should preserve the GET route too.
+    
     try:
         #First check if it's a video document ID
         video = Video.find_by_id(video_id)
@@ -445,7 +516,7 @@ def get_available_formats(video_id):
                 return jsonify({'error': error}), 400
             yt_video_id = video_id
         
-        # Get available formats using YouTube service
+        # Get available formats using YouTube service (no cookies)
         formats_info = YouTubeService.get_available_formats(yt_video_id)
         
         if not formats_info:

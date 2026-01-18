@@ -27,7 +27,8 @@ class VideoData:
         video_id: str,
         format_preference: str = None,
         resolution_preference: str = None,
-        progress_callback=None
+        progress_callback=None,
+        cookies_content: Optional[str] = None
     ) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Download video using database info (for API).
@@ -37,6 +38,7 @@ class VideoData:
             format_preference: Optional format (mp4, webm, best)
             resolution_preference: Optional resolution (1080p, 720p, best)
             progress_callback: Optional progress callback
+            cookies_content: Optional Netscape formatted cookies string
             
         Returns:
             Tuple of (success, file_path, error_message)
@@ -78,7 +80,8 @@ class VideoData:
                 format_preference=format_pref,
                 resolution_preference=resolution_pref,
                 video_id=video_id,  # For cache storage
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
+                cookies_content=cookies_content
             )
             
             # Update database with result

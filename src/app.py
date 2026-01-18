@@ -7,6 +7,7 @@ from src.config import Config, setup_logging
 from src.routes.auth import auth_bp
 from src.routes.video import video_bp
 from src.routes.encode import encode_bp
+from src.routes.nightbot import nightbot_bp
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ def create_app():
     app.register_blueprint(auth_bp)
     app.register_blueprint(video_bp)
     app.register_blueprint(encode_bp)
+    app.register_blueprint(nightbot_bp)
     
     # Health check endpoint
     @app.route('/health', methods=['GET'])
