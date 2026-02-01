@@ -1,0 +1,57 @@
+# Frontend folder (has its own Dockerfile)
+frontend
+
+# Test and temporary directories
+downloadVideo
+downloads
+bin
+
+# Python virtual environment
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.eggs
+
+# Service files
+yt-downloader.service
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Documentation and notes
+*.md
+!README.md
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Test and coverage
+.pytest_cache
+.coverage
+htmlcov
+.tox
+
+# Logs
+*.log
+logs
