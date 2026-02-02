@@ -89,3 +89,4 @@ htmlcov/
 *.vob
 *.ogv
 *.gifv
+firebase-service-account.json
