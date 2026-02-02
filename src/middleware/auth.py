@@ -6,6 +6,7 @@ from flask import request, jsonify, g
 from src.utils.token import verify_public_token, verify_private_token
 from src.models.session import Session
 from src.models.user import User
+from src.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -134,5 +135,77 @@ def optional_auth(f):
                         }
         
         return f(*args, **kwargs)
+    
+    return decorated_function
+
+
+def require_public_rate_limit(f):
+    """
+    Middleware to enforce rate limits on public API endpoints.
+    Uses IP address + browser fingerprint for client identification.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        from src.utils.client_info import get_client_ip, get_browser_fingerprint
+        from src.services.rate_limiter_service import RateLimiterService
+        from datetime import datetime
+        
+        # Extract client information
+        ip = get_client_ip(request)
+        fingerprint = get_browser_fingerprint(request)
+        
+        if not fingerprint:
+            logger.warning("Missing or invalid browser fingerprint")
+            return jsonify({'error': 'Browser fingerprint required'}), 400
+        
+        # Create client ID
+        client_id = RateLimiterService.create_client_id(ip, fingerprint)
+        
+        # Check rate limit
+        allowed, remaining, reset_time = RateLimiterService.check_rate_limit(client_id)
+        
+        if not allowed:
+            logger.warning(f"Rate limit exceeded for client {client_id[:8]}... (IP: {ip})")
+            response = jsonify({
+                'error': 'Rate limit exceeded',
+                'message': f'You have reached the daily limit of {Config.PUBLIC_API_RATE_LIMIT} operations. Please sign in for unlimited access.',
+                'limit': Config.PUBLIC_API_RATE_LIMIT,
+                'remaining': 0,
+                'reset_at': reset_time.isoformat()
+            })
+            response.status_code = 429
+            
+            # Add rate limit headers
+            response.headers['X-RateLimit-Limit'] = str(Config.PUBLIC_API_RATE_LIMIT)
+            response.headers['X-RateLimit-Remaining'] = '0'
+            response.headers['X-RateLimit-Reset'] = str(int(reset_time.timestamp()))
+            
+            return response
+        
+        # Attach client info to request context
+        g.client_id = client_id
+        g.client_ip = ip
+        g.client_fingerprint = fingerprint
+        g.rate_limit_remaining = remaining
+        g.rate_limit_reset = reset_time
+        
+        # Execute the route function
+        response = f(*args, **kwargs)
+        
+        # If response is a tuple (data, status_code), extract the response object
+        if isinstance(response, tuple):
+            response_obj = response[0]
+            status_code = response[1] if len(response) > 1 else 200
+        else:
+            response_obj = response
+            status_code = 200
+        
+        # Add rate limit headers to response
+        if hasattr(response_obj, 'headers'):
+            response_obj.headers['X-RateLimit-Limit'] = str(Config.PUBLIC_API_RATE_LIMIT)
+            response_obj.headers['X-RateLimit-Remaining'] = str(remaining - 1)  # Subtract 1 for current operation
+            response_obj.headers['X-RateLimit-Reset'] = str(int(reset_time.timestamp()))
+        
+        return response
     
     return decorated_function

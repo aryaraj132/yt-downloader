@@ -8,6 +8,7 @@ from src.routes.auth import auth_bp
 from src.routes.video import video_bp
 from src.routes.encode import encode_bp
 from src.routes.nightbot import nightbot_bp
+from src.routes.public_api import public_api_bp
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ def create_app():
         r"/api/*": {
             "origins": "*",  # Configure this for production
             "methods": ["GET", "POST", "PUT", "DELETE"],
-            "allow_headers": ["Content-Type", "Authorization"]
+            "allow_headers": ["Content-Type", "Authorization", "X-Browser-Fingerprint"]
         }
     })
     
@@ -39,6 +40,7 @@ def create_app():
     app.register_blueprint(video_bp)
     app.register_blueprint(encode_bp)
     app.register_blueprint(nightbot_bp)
+    app.register_blueprint(public_api_bp)
     
     # Health check endpoint
     @app.route('/health', methods=['GET'])

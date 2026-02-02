@@ -72,6 +72,11 @@ class Config:
     GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
     GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI')
 
+    # Public API Configuration
+    PUBLIC_API_RATE_LIMIT = int(os.getenv('PUBLIC_API_RATE_LIMIT', 10))  # Operations per day
+    PUBLIC_API_MAX_CLIP_DURATION = int(os.getenv('PUBLIC_API_MAX_CLIP_DURATION', 40))  # Seconds
+    PUBLIC_API_MAX_ENCODE_DURATION = int(os.getenv('PUBLIC_API_MAX_ENCODE_DURATION', 300))  # 5 minutes in seconds
+
     
     @classmethod
     def validate(cls):

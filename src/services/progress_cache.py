@@ -37,14 +37,21 @@ _local_progress_cache = {}
 class ProgressCache:
     
     @staticmethod
-    def set_progress(video_id: str, progress_data: Dict) -> bool:
+    def set_progress(video_id: str, progress_data: Dict, ttl: int = 3600) -> bool:
+        """
+        Set progress data for a video.
         
+        Args:
+            video_id: Video or job ID
+            progress_data: Progress information dict
+            ttl: Time to live in seconds (default: 1 hour)
+        """
         try:
             if REDIS_AVAILABLE and redis_client:
-                # Store in Redis with 1 hour expiry
+                # Store in Redis with custom TTL
                 key = f"video:progress:{video_id}"
                 redis_client.hset(key, mapping=progress_data)
-                redis_client.expire(key, 3600)  # 1 hour TTL
+                redis_client.expire(key, ttl)
                 return True
             else:
                 # Store in local dict

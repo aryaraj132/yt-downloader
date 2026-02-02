@@ -89,4 +89,60 @@ export const videoService = {
         const response = await api.post(`/video/formats`, { video_id: videoId, cookies });
         return response.data;
     },
+
+    // ========== PUBLIC API METHODS (no authentication) ==========
+
+    async savePublicClip(data: {
+        url: string;
+        start_time: number;
+        end_time: number;
+        cookies?: string;
+        format?: string;
+        resolution?: string;
+    }): Promise<{
+        job_id: string;
+        message: string;
+        status_url: string;
+        download_url: string;
+        rate_limit: { remaining: number; limit: number; reset_at: string };
+    }> {
+        const { publicApi } = await import('@/lib/api');
+        const response = await publicApi.post('/public/clip', data);
+        return response.data;
+    },
+
+    async getPublicJobStatus(jobId: string): Promise<{
+        job_id: string;
+        status: string;
+        progress: number;
+        current_phase: string;
+        file_ready: boolean;
+        error_message?: string;
+    }> {
+        const { publicApi } = await import('@/lib/api');
+        const response = await publicApi.get(`/public/status/${jobId}`);
+        return response.data;
+    },
+
+    async downloadPublicFile(jobId: string): Promise<string> {
+        const { publicApi } = await import('@/lib/api');
+        const response = await publicApi.get(`/public/download/${jobId}`, {
+            responseType: 'blob'
+        });
+
+        const blob = new Blob([response.data]);
+        const url = window.URL.createObjectURL(blob);
+        return url;
+    },
+
+    async checkRateLimit(): Promise<{
+        limit: number;
+        used: number;
+        remaining: number;
+        reset_at: string;
+    }> {
+        const { publicApi } = await import('@/lib/api');
+        const response = await publicApi.get('/public/rate-limit');
+        return response.data;
+    }
 };
