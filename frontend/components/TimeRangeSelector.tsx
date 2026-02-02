@@ -10,6 +10,7 @@ interface TimeRangeSelectorProps {
     onStartTimeChange: (seconds: number) => void;
     onEndTimeChange: (seconds: number) => void;
     error?: string;
+    maxDuration: number;
 }
 
 export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
@@ -18,6 +19,7 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
     onStartTimeChange,
     onEndTimeChange,
     error,
+    maxDuration,
 }) => {
     const [startTimeStr, setStartTimeStr] = useState(formatSecondsToTime(startTime));
     const [endTimeStr, setEndTimeStr] = useState(formatSecondsToTime(endTime));
@@ -47,7 +49,7 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
     };
 
     const duration = endTime - startTime;
-    const isValidDuration = duration > 0 && duration <= 120;
+    const isValidDuration = duration > 0 && duration <= maxDuration;
 
     return (
         <div className="space-y-4">
@@ -73,7 +75,7 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
                 <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
                     <span className="text-sm text-gray-600 dark:text-gray-400">Duration:</span>
                     <span className={`text-sm font-medium ${isValidDuration ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {duration} seconds {!isValidDuration && duration > 120 && '(Max 120s exceeded)'}
+                        {duration} seconds {!isValidDuration && duration > maxDuration && `(Max ${maxDuration}s exceeded)`}
                     </span>
                 </div>
             )}

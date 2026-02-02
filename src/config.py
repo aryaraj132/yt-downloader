@@ -18,7 +18,7 @@ class Config:
     """Application configuration loaded from environment variables."""
     
     # Firebase
-    FIREBASE_SERVICE_ACCOUNT_KEY_PATH = os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY_PATH', '../serviceAccountKey.json')
+    FIREBASE_SERVICE_ACCOUNT_KEY_PATH = os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY_PATH', '../firebase-service-account.json')
     
     # MongoDB
     MONGODB_URI = os.getenv('MONGODB_URI')
