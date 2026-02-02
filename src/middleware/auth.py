@@ -3,10 +3,8 @@ import logging
 from functools import wraps
 from flask import request, jsonify, g
 
-from src.utils.token import verify_public_token, verify_private_token
-from src.models.session import Session
+from src.utils.token import verify_public_token
 from src.models.user import User
-from src.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +55,8 @@ def require_public_token(f):
 
 def require_private_token(f):
     """
-    Middleware to require a valid private token with user session.
-    Used for authenticated endpoints like downloading videos.
+    Middleware to require a valid OAuth token.
+    Used for authenticated endpoints.
     Attaches user data to request context (g.user and g.user_id).
     """
     @wraps(f)
@@ -69,43 +67,56 @@ def require_private_token(f):
             logger.warning("Missing token in request")
             return jsonify({'error': 'Missing authentication token'}), 401
         
-        # Verify private token and extract user info
-        user_id, session_id, error = verify_private_token(token)
-        
-        if error:
-            logger.warning(f"Invalid private token: {error}")
-            return jsonify({'error': error}), 401
-        
-        # Verify session exists and is valid
-        session = Session.find_by_id(session_id)
-        
-        if not session:
-            logger.warning(f"Session not found: {session_id}")
-            return jsonify({'error': 'Invalid session'}), 401
-        
-        if not Session.is_valid(session):
-            logger.warning(f"Session expired: {session_id}")
-            return jsonify({'error': 'Session expired'}), 401
-        
-        # Get user data
-        user = User.find_by_id(user_id)
-        
-        if not user:
-            logger.warning(f"User not found: {user_id}")
-            return jsonify({'error': 'User not found'}), 401
-        
-        # Attach user data to request context
-        g.user_id = user_id
-        g.user = {
-            '_id': str(user['_id']),
-            'email': user['email'],
-            'created_at': user['created_at'].isoformat() if user.get('created_at') else None
-        }
-        
-        logger.debug(f"Authenticated user: {user['email']}")
-        
-        # Proceed with the request
-        return f(*args, **kwargs)
+        # Verify token with Google
+        try:
+            import requests
+            response = requests.get(
+                'https://www.googleapis.com/oauth2/v3/tokeninfo',
+                params={'access_token': token}
+            )
+            
+            if response.status_code != 200:
+                logger.warning("Invalid OAuth token")
+                return jsonify({'error': 'Invalid or expired token'}), 401
+            
+            token_info = response.json()
+            
+            # Get user by email from token info
+            email = token_info.get('email')
+            if not email:
+                logger.warning("No email in token info")
+                return jsonify({'error': 'Invalid token'}), 401
+            
+            # Find user by email
+            user = User.find_by_email(email)
+            
+            if not user:
+                logger.warning(f"User not found: {email}")
+                return jsonify({'error': 'User not found'}), 401
+            
+            user_id = str(user['_id'])
+            
+            # Attach user data to request context
+            g.user_id = user_id
+            g.user = {
+                '_id': user_id,
+                'email': user['email'],
+                'created_at': user['created_at'].isoformat() if user.get('created_at') else None
+            }
+            
+            # Attach OAuth token for YouTube API calls
+            g.google_access_token = token
+            g.google_refresh_token = user.get('google_refresh_token')
+            g.has_youtube_auth = True
+            
+            logger.debug(f"Authenticated user: {user['email']}")
+            
+            # Proceed with the request
+            return f(*args, **kwargs)
+            
+        except Exception as e:
+            logger.error(f"Token verification error: {str(e)}")
+            return jsonify({'error': 'Authentication failed'}), 401
     
     return decorated_function
 
@@ -113,26 +124,38 @@ def require_private_token(f):
 def optional_auth(f):
     """
     Optional authentication middleware.
-    Attaches user data if valid token is provided, but doesn't require it.
+    Attaches user data if valid OAuth token is provided, but doesn't require it.
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
         token = get_token_from_request()
         
         if token:
-            user_id, session_id, error = verify_private_token(token)
-            
-            if not error:
-                session = Session.find_by_id(session_id)
-                if session and Session.is_valid(session):
-                    user = User.find_by_id(user_id)
-                    if user:
-                        g.user_id = user_id
-                        g.user = {
-                            '_id': str(user['_id']),
-                            'email': user['email'],
-                            'created_at': user['created_at'].isoformat() if user.get('created_at') else None
-                        }
+            try:
+                import requests
+                response = requests.get(
+                    'https://www.googleapis.com/oauth2/v3/tokeninfo',
+                    params={'access_token': token}
+                )
+                
+                if response.status_code == 200:
+                    token_info = response.json()
+                    email = token_info.get('email')
+                    
+                    if email:
+                        user = User.find_by_email(email)
+                        if user:
+                            g.user_id = str(user['_id'])
+                            g.user = {
+                                '_id': str(user['_id']),
+                                'email': user['email'],
+                                'created_at': user['created_at'].isoformat() if user.get('created_at') else None
+                            }
+                            g.google_access_token = token
+                            g.has_youtube_auth = True
+            except Exception as e:
+                logger.debug(f"Optional auth failed: {str(e)}")
+                # Continue without auth
         
         return f(*args, **kwargs)
     

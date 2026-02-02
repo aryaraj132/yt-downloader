@@ -32,7 +32,17 @@ class Video:
         format_preference: Optional[str] = None,
         resolution_preference: Optional[str] = None,
         clip_offset: Optional[int] = None,
-        available_formats: Optional[Dict] = None
+        available_formats: Optional[Dict] = None,
+        # New stream/chat metadata fields
+        youtube_video_id: Optional[str] = None,
+        chat_id: Optional[str] = None,
+        chat_author: Optional[str] = None,
+        chat_author_channel_id: Optional[str] = None,
+        chat_message: Optional[str] = None,
+        is_user_message: Optional[bool] = None,
+        stream_start_time: Optional[datetime] = None,
+        chat_timestamp: Optional[datetime] = None,
+        public_token: Optional[str] = None
     ) -> Optional[str]:
         """
         Create a new video download request.
@@ -47,6 +57,15 @@ class Video:
             resolution_preference: Preferred resolution (e.g., '1080p', '720p', 'best')
             clip_offset: For live stream clips, offset from timestamp
             available_formats: List of available high-quality resolutions (e.g., ["1440p", "1080p", "720p"])
+            youtube_video_id: YouTube video/stream ID
+            chat_id: YouTube chat message ID
+            chat_author: Display name of chat message author
+            chat_author_channel_id: Channel ID of chat message author
+            chat_message: Content of the chat message
+            is_user_message: Whether the authenticated user sent this message
+            stream_start_time: When the livestream started
+            chat_timestamp: When the chat message was sent
+            public_token: Public token used to create this clip
             
         Returns:
             Video ID as string if successful, None otherwise
@@ -69,7 +88,17 @@ class Video:
                 'encoding_progress': 0,
                 'additional_message': additional_message,
                 'clip_offset': clip_offset,
-                'available_formats': available_formats  # Store available formats
+                'available_formats': available_formats,  # Store available formats
+                # Stream/chat metadata
+                'youtube_video_id': youtube_video_id,
+                'chat_id': chat_id,
+                'chat_author': chat_author,
+                'chat_author_channel_id': chat_author_channel_id,
+                'chat_message': chat_message,
+                'is_user_message': is_user_message,
+                'stream_start_time': stream_start_time,
+                'chat_timestamp': chat_timestamp,
+                'public_token': public_token
             }
             
             result = db.videos.insert_one(video_doc)

@@ -112,100 +112,146 @@ def save_video_info():
         return jsonify({'error': 'Internal server error'}), 500
 
 
-@video_bp.route('/save/stream/<token>/<video_id>', methods=['GET', 'POST'])
-def save_video_from_stream(token, video_id):
+@video_bp.route('/save/stream/<token>/<chat_id>', methods=['GET', 'POST'])
+def save_video_from_stream(token, chat_id):
     """
-    Save video clip from live stream using video ID and querystring parameters.
-    This endpoint is designed for use with Nightbot urlfetch.
-    Public-facing endpoint that accepts token in URL path.
+    Save video clip from live stream based on specific chat message ID.
+    Designed for Nightbot and public API usage.
     
     URL Parameters:
-        token: Public API token
-        video_id: YouTube video ID (11 characters)
+        token: User's public API token
+        chat_id: YouTube chat message ID (from Nightbot $(chatid))
     
     Query Parameters:
-        message: User message/description for the clip (optional)
-        offset: Seconds to capture before/after timestamp (default: 60)
-        duration: Total clip duration in seconds (default: 120)
-        user_id: User ID who owns the public token (required)
+        offset: Seconds to capture before chat message (default: 30)
+        duration: Total clip duration in seconds (default: 60, max: 120)
     
     Returns:
         {
-            "message": "Video clip saved successfully",
-            "video_id": "..."
+            "message": "Clip saved successfully",
+            "video_id": "...",
+            "clip_start": seconds,
+            "clip_end": seconds
         }
     """
     try:
-        # Get query parameters
-        message = request.args.get('message', '')
-        user_id = request.args.get('user_id')
+        # Get user from public token
+        user = User.find_by_public_token(token)
         
+        if not user:
+            return jsonify({'error': 'Invalid or missing public token'}), 401
+        
+        user_id = str(user['_id'])
+        
+        # Get query parameters
         try:
-            offset = int(request.args.get('offset', 60))
-            duration = int(request.args.get('duration', 120))
+            offset = int(request.args.get('offset', 30))
+            duration = int(request.args.get('duration', 60))
         except (ValueError, TypeError):
             return jsonify({'error': 'Invalid offset or duration values'}), 400
         
-        # Validate user_id is provided
-        if not user_id:
-            return jsonify({'error': 'Missing required parameter: user_id'}), 400
+        # Validate duration
+        if duration > Config.MAX_VIDEO_DURATION:
+            return jsonify({'error': f'Duration exceeds maximum of {Config.MAX_VIDEO_DURATION} seconds'}), 400
         
-        # Validate video ID format
+        # Get user's valid OAuth token
+        access_token = User.get_valid_access_token(user_id)
+        
+        if not access_token:
+            return jsonify({'error': 'YouTube API access not configured. Please log in with Google.'}), 403
+        
+        # Get chat message details by ID
+        from src.services.youtube_api_service import YouTubeAPIService
+        
+        chat_msg = YouTubeAPIService.get_chat_message_by_id(chat_id, access_token)
+        
+        if not chat_msg:
+            return jsonify({'error': 'Chat message not found'}), 404
+        
+        # Get video ID from the live chat ID in the message
+        live_chat_id = chat_msg.get('live_chat_id')
+        
+        if not live_chat_id:
+            return jsonify({'error': 'Live chat ID not found in message'}), 500
+        
+        video_id = YouTubeAPIService.get_video_id_from_live_chat(live_chat_id, access_token)
+        
+        if not video_id:
+            return jsonify({'error': 'Could not determine video ID from chat message'}), 500
+        
+        # Validate video ID
         is_valid, error = validate_video_id(video_id)
         if not is_valid:
             return jsonify({'error': error}), 400
         
-        # Construct YouTube URL from video ID
+        # Get stream details from YouTube API
+        stream_details = YouTubeAPIService.get_video_stream_details(video_id, access_token)
+        
+        if not stream_details:
+            return jsonify({'error': 'Failed to fetch stream details from YouTube'}), 500
+        
+        stream_start_time = stream_details.get('actual_start_time')
+        
+        if not stream_start_time:
+            return jsonify({'error': 'Stream has not started or start time unavailable'}), 400
+        
+        # Calculate clip timing
+        clip_start, clip_end = YouTubeAPIService.calculate_clip_time(
+            stream_start_time,
+            chat_msg['published_at'],
+            offset,
+            duration
+        )
+        
+        # Check if user sent this message
+        is_user_msg = YouTubeAPIService.is_user_channel(
+            chat_msg['author_channel_id'],
+            access_token
+        )
+        
+        # Construct YouTube URL
         url = YouTubeService.construct_video_url(video_id)
         
-        # Calculate start and end times
-        # For live streams, we use current timestamp and offset
-        # Note: For actual live streams, you might need to adjust this logic
-        # based on when the stream started
-        import time
-        current_time = int(time.time())
-        
-        # For now, we'll use a simple offset-based approach
-        # In a real implementation, you'd need to:
-        # 1. Determine if the video is currently live
-        # 2. Calculate the actual timestamp in the video timeline
-        # 3. Use that as the center point for the clip
-        
-        # Simple implementation: capture offset seconds before to (duration - offset) seconds after
-        start_time = 0  # Placeholder - would be calculated based on live stream position
-        end_time = duration
-        
-        # Validate time range
-        is_valid_time, time_error = validate_time_range(
-            start_time, end_time, Config.MAX_VIDEO_DURATION
-        )
-        if not is_valid_time:
-            return jsonify({'error': time_error}), 400
-        
-        # Fetch available formats for this video (720p+)
+        # Fetch available formats
         try:
             available_formats = YouTubeService.get_available_formats(video_id)
         except Exception as e:
             logger.warning(f"Could not fetch available formats: {e}")
             available_formats = None
         
-        # Save video info
+        # Save video info with chat metadata
         saved_video_id = Video.create_video_info(
-            user_id, url, start_time, end_time,
-            additional_message=message,
-            clip_offset=offset,
-            available_formats=available_formats
+            user_id=user_id,
+            url=url,
+            start_time=clip_start,
+            end_time=clip_end,
+            available_formats=available_formats,
+            youtube_video_id=video_id,
+            chat_id=chat_msg['id'],
+            chat_author=chat_msg['author_display_name'],
+            chat_author_channel_id=chat_msg['author_channel_id'],
+            chat_message=chat_msg['message_text'],
+            is_user_message=is_user_msg,
+            stream_start_time=stream_start_time,
+            chat_timestamp=chat_msg['published_at'],
+            public_token=token
         )
         
         if not saved_video_id:
             return jsonify({'error': 'Failed to save video clip'}), 500
         
-        logger.info(f"Stream clip saved: {saved_video_id} from video {video_id}")
+        logger.info(f"Stream clip saved: {saved_video_id} from chat message {chat_id} in {video_id}")
         
         return jsonify({
-            'message': 'Video clip saved successfully',
+            'message': 'Clip saved successfully',
             'video_id': saved_video_id,
-            'youtube_video_id': video_id
+            'youtube_video_id': video_id,
+            'chat_id': chat_msg['id'],
+            'clip_start': clip_start,
+            'clip_end': clip_end,
+            'chat_author': chat_msg['author_display_name'],
+            'chat_message': chat_msg['message_text'],
+            'is_your_message': is_user_msg
         }), 201
         
     except Exception as e:

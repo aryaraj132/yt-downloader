@@ -62,9 +62,14 @@ class Config:
     SUPPORTED_RESOLUTIONS = ['best', 'worst', '2160p', '1440p', '1080p', '720p', '480p', '360p', '240p', '144p', '4320p']
     
     # YouTube API (Optional - for metadata fetching if needed)
-    YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY', '')  # Optional
+    YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY', '')  # Optional, not used with OAuth
 
-    # Google OAuth
+    # Google OAuth Configuration
+    # Required scopes for YouTube Data API access:
+    # - https://www.googleapis.com/auth/youtube.readonly (read video/stream info)
+    # - https://www.googleapis.com/auth/youtube.force-ssl (read live chat)
+    # - https://www.googleapis.com/auth/userinfo.email (get user email)
+    # - openid (OAuth standard)
     GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
     GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
     GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI')
