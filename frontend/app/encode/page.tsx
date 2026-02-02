@@ -7,9 +7,12 @@ import { Select } from '@/components/ui/Select';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { useToast } from '@/components/ui/Toast';
 import { encodeService } from '@/services/encodeService';
+import { videoService } from '@/services/videoService';
 import { useAuthStore } from '@/store/authStore';
 import { downloadFile } from '@/utils/downloadFile';
-import { Upload, Film, Download, FileVideo } from 'lucide-react';
+import { Upload, Film, Download, FileVideo, AlertCircle, Clock, User } from 'lucide-react';
+
+const PUBLIC_MAX_DURATION = 300; // 5 minutes in seconds
 
 export default function EncodePage() {
     const router = useRouter();
@@ -17,6 +20,7 @@ export default function EncodePage() {
     const { isAuthenticated } = useAuthStore();
 
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [fileDuration, setFileDuration] = useState<number | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [codec, setCodec] = useState<'h264' | 'h265' | 'av1'>('h264');
     const [quality, setQuality] = useState<'lossless' | 'high' | 'medium'>('high');
@@ -25,7 +29,24 @@ export default function EncodePage() {
     const [uploadProgress, setUploadProgress] = useState(0);
     const [encodeProgress, setEncodeProgress] = useState(0);
     const [encodeId, setEncodeId] = useState<string | null>(null);
+    const [jobId, setJobId] = useState<string | null>(null);
     const [supportedCodecs, setSupportedCodecs] = useState<any>(null);
+    const [rateLimit, setRateLimit] = useState<{ used: number; limit: number; remaining: number; reset_at: string } | null>(null);
+
+    // Fetch rate limit for guests
+    useEffect(() => {
+        const fetchRateLimit = async () => {
+            if (!isAuthenticated) {
+                try {
+                    const limit = await videoService.checkRateLimit();
+                    setRateLimit(limit);
+                } catch (error) {
+                    console.error('Failed to fetch rate limit:', error);
+                }
+            }
+        };
+        fetchRateLimit();
+    }, [isAuthenticated]);
 
     useEffect(() => {
         const fetchCodecs = async () => {
@@ -38,6 +59,29 @@ export default function EncodePage() {
         };
         fetchCodecs();
     }, []);
+
+    // Check video duration when file is selected
+    useEffect(() => {
+        const checkDuration = async () => {
+            if (selectedFile) {
+                try {
+                    const duration = await encodeService.getVideoDuration(selectedFile);
+                    setFileDuration(duration);
+
+                    // Validate for guest users
+                    if (!isAuthenticated && duration > PUBLIC_MAX_DURATION) {
+                        showToast(`Video duration (${Math.round(duration)}s) exceeds guest limit of ${PUBLIC_MAX_DURATION}s. Please sign in for longer videos.`, 'warning');
+                    }
+                } catch (error) {
+                    console.error('Failed to get video duration:', error);
+                    setFileDuration(null);
+                }
+            } else {
+                setFileDuration(null);
+            }
+        };
+        checkDuration();
+    }, [selectedFile, isAuthenticated, showToast]);
 
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault();
@@ -66,17 +110,8 @@ export default function EncodePage() {
         }
     };
 
-    const handleUploadAndEncode = async () => {
-        if (!isAuthenticated) {
-            showToast('Please login to encode videos', 'warning');
-            router.push('/auth/login');
-            return;
-        }
-
-        if (!selectedFile) {
-            showToast('Please select a video file', 'error');
-            return;
-        }
+    const handleUploadAndEncodeAuthenticated = async () => {
+        if (!selectedFile) return;
 
         setIsUploading(true);
         try {
@@ -143,6 +178,112 @@ export default function EncodePage() {
         }
     };
 
+    const handleUploadAndEncodeGuest = async () => {
+        if (!selectedFile) return;
+
+        setIsEncoding(true);
+        try {
+            // Call public API
+            const response = await encodeService.encodePublic(selectedFile, {
+                video_codec: codec,
+                quality_preset: quality,
+            });
+
+            setJobId(response.job_id);
+            setRateLimit({
+                used: response.rate_limit.limit - response.rate_limit.remaining,
+                limit: response.rate_limit.limit,
+                remaining: response.rate_limit.remaining,
+                reset_at: response.rate_limit.reset_at
+            });
+            showToast('Encoding started...', 'info');
+
+            // Poll for status
+            const pollInterval = setInterval(async () => {
+                try {
+                    const status = await videoService.getPublicJobStatus(response.job_id);
+                    setEncodeProgress(status.progress || 0);
+
+                    if (status.file_ready) {
+                        clearInterval(pollInterval);
+
+                        // Download file
+                        const blobUrl = await videoService.downloadPublicFile(response.job_id);
+
+                        // Trigger download
+                        const a = document.createElement('a');
+                        a.href = blobUrl;
+                        a.download = `${selectedFile.name.replace(/\.[^/.]+$/, '')}_encoded.mp4`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(blobUrl);
+
+                        showToast('Video encoded and downloaded!', 'success');
+                        setIsEncoding(false);
+                        setEncodeProgress(0);
+                        setSelectedFile(null);
+                        setJobId(null);
+                    } else if (status.status === 'failed') {
+                        clearInterval(pollInterval);
+                        showToast(status.error_message || 'Encoding failed', 'error');
+                        setIsEncoding(false);
+                        setEncodeProgress(0);
+                        setJobId(null);
+                    }
+                } catch (error) {
+                    clearInterval(pollInterval);
+                    showToast('Error checking status', 'error');
+                    setIsEncoding(false);
+                    setEncodeProgress(0);
+                    setJobId(null);
+                }
+            }, 3000); // Check every 3 seconds
+
+            // Timeout after 15 minutes for encoding
+            setTimeout(() => {
+                clearInterval(pollInterval);
+                if (isEncoding) {
+                    showToast('Encoding timeout. Please try again.', 'warning');
+                    setIsEncoding(false);
+                }
+            }, 900000);
+
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || error.response?.data?.message || 'Encoding failed';
+            showToast(errorMsg, 'error');
+            setIsEncoding(false);
+            setEncodeProgress(0);
+
+            // Update rate limit if present in error response
+            if (error.response?.data?.remaining !== undefined) {
+                setRateLimit({
+                    used: error.response.data.limit - error.response.data.remaining,
+                    limit: error.response.data.limit,
+                    remaining: error.response.data.remaining,
+                    reset_at: error.response.data.reset_at
+                });
+            }
+        }
+    };
+
+    const handleUploadAndEncode = async () => {
+        // Validate file duration for guests
+        if (!isAuthenticated && fileDuration && fileDuration > PUBLIC_MAX_DURATION) {
+            showToast(`Video duration exceeds guest limit of ${PUBLIC_MAX_DURATION}s. Please sign in.`, 'error');
+            return;
+        }
+
+        if (isAuthenticated) {
+            await handleUploadAndEncodeAuthenticated();
+        } else {
+            await handleUploadAndEncodeGuest();
+        }
+    };
+
+    const isDurationExceeded = !isAuthenticated && fileDuration !== null && fileDuration > PUBLIC_MAX_DURATION;
+    const isRateLimitExceeded = !isAuthenticated && rateLimit?.remaining === 0;
+
     return (
         <div className="container mx-auto px-4 py-12">
             <div className="max-w-4xl mx-auto">
@@ -154,6 +295,38 @@ export default function EncodePage() {
                         Convert your videos to MP4 with premium codecs and quality settings
                     </p>
                 </div>
+
+                {/* Guest Mode Banner */}
+                {!isAuthenticated && (
+                    <div className="glass-effect rounded-xl p-4 mb-6 border-l-4 border-amber-500">
+                        <div className="flex items-start gap-3">
+                            <AlertCircle className="text-amber-500 flex-shrink-0 mt-0.5" size={20} />
+                            <div className="flex-1">
+                                <h3 className="font-semibold text-gray-900 dark:text-white mb-1">
+                                    Guest Mode - Limited Access
+                                </h3>
+                                <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                                    <li className="flex items-center gap-2">
+                                        <Clock size={14} />
+                                        Maximum video duration: {PUBLIC_MAX_DURATION / 60} minutes ({PUBLIC_MAX_DURATION}s)
+                                    </li>
+                                    {rateLimit && (
+                                        <li className="flex items-center gap-2">
+                                            <User size={14} />
+                                            Rate limit: {rateLimit.remaining} of {rateLimit.limit} operations remaining today
+                                        </li>
+                                    )}
+                                </ul>
+                                <p className="text-sm mt-2">
+                                    <a href="/auth/login" className="text-primary-600 hover:text-primary-700 font-medium underline">
+                                        Sign in
+                                    </a>
+                                    {' '}for unlimited access (longer videos, no daily limits)
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div className="glass-effect rounded-2xl p-8 space-y-6">
                     {/* File Upload Area */}
@@ -173,7 +346,13 @@ export default function EncodePage() {
                                     <p className="text-lg font-medium text-gray-900 dark:text-white">{selectedFile.name}</p>
                                     <p className="text-sm text-gray-600 dark:text-gray-400">
                                         {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
+                                        {fileDuration && ` • ${Math.round(fileDuration)}s duration`}
                                     </p>
+                                    {isDurationExceeded && (
+                                        <p className="text-sm text-red-600 dark:text-red-400 mt-2">
+                                            ⚠️ Exceeds guest limit. Please sign in to encode this video.
+                                        </p>
+                                    )}
                                 </div>
                                 <Button
                                     variant="ghost"
@@ -261,7 +440,7 @@ export default function EncodePage() {
                         size="lg"
                         className="w-full"
                         onClick={handleUploadAndEncode}
-                        disabled={!selectedFile || isUploading || isEncoding || !isAuthenticated}
+                        disabled={!selectedFile || isUploading || isEncoding || isDurationExceeded || isRateLimitExceeded}
                         isLoading={isUploading || isEncoding}
                     >
                         {isUploading ? (
@@ -279,9 +458,11 @@ export default function EncodePage() {
                         )}
                     </Button>
 
-                    {!isAuthenticated && (
-                        <p className="text-sm text-center text-amber-600 dark:text-amber-400">
-                            Please <a href="/auth/login" className="underline">login</a> to encode videos
+                    {isRateLimitExceeded && (
+                        <p className="text-sm text-center text-red-600 dark:text-red-400">
+                            Rate limit exceeded. Please{' '}
+                            <a href="/auth/login" className="underline font-medium">sign in</a>
+                            {' '}for unlimited access or wait until tomorrow.
                         </p>
                     )}
 

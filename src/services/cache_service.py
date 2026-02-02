@@ -24,17 +24,14 @@ class CacheService:
         
         try:
             if self._client is None:
-                self._client = redis.Redis(
-                    host=Config.REDIS_HOST,
-                    port=Config.REDIS_PORT,
-                    password=Config.REDIS_PASSWORD if Config.REDIS_PASSWORD else None,
-                    db=Config.REDIS_DB,
+                self._client = redis.from_url(
+                    Config.REDIS_URI,
                     decode_responses=True,
                     socket_connect_timeout=5
                 )
                 # Test connection
                 self._client.ping()
-                logger.info(f"Connected to Redis at {Config.REDIS_HOST}:{Config.REDIS_PORT}")
+                logger.info(f"Connected to Redis using URI: {Config.REDIS_URI}")
                 
         except ConnectionError as e:
             logger.error(f"Failed to connect to Redis: {str(e)}")

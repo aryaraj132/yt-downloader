@@ -33,9 +33,7 @@ MONGO_USERNAME=admin
 MONGO_PASSWORD=password
 
 # Redis Configuration
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_DB=0
+REDIS_URI=redis://redis:6379/0
 
 # Firebase Configuration (if using)
 FIREBASE_CREDENTIALS_PATH=/app/firebase-credentials.json

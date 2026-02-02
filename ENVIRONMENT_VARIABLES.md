@@ -27,29 +27,18 @@ This document lists all environment variables required to run the YouTube Video 
 
 ## Redis Configuration
 
-### `REDIS_HOST`
-- **Type**: String
+### `REDIS_URI`
+- **Type**: String (connection URI)
 - **Required**: No
-- **Default**: `localhost`
-- **Description**: Redis server hostname or IP address
+- **Default**: `redis://localhost:6379/0`
+- **Description**: Redis connection URI including host, port, password (if needed), and database number
+- **Format**: `redis://[[username:]password@]host[:port][/database]`
+- **Examples**: 
+  - Local without password: `redis://localhost:6379/0`
+  - With password: `redis://:mypassword@localhost:6379/0`
+  - Remote server: `redis://redis.example.com:6379/0`
+  - With username and password: `redis://user:password@redis.example.com:6379/1`
 
-### `REDIS_PORT`
-- **Type**: Integer
-- **Required**: No
-- **Default**: `6379`
-- **Description**: Redis server port
-
-### `REDIS_PASSWORD`
-- **Type**: String
-- **Required**: No
-- **Default**: Empty
-- **Description**: Redis authentication password (leave empty if no auth)
-
-### `REDIS_DB`
-- **Type**: Integer
-- **Required**: No
-- **Default**: `0`
-- **Description**: Redis database number (0-15)
 
 ## JWT Token Configuration
 

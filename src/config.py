@@ -18,17 +18,14 @@ class Config:
     """Application configuration loaded from environment variables."""
     
     # Firebase
-    FIREBASE_SERVICE_ACCOUNT_KEY_PATH = os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY_PATH')
+    FIREBASE_SERVICE_ACCOUNT_KEY_PATH = os.getenv('FIREBASE_SERVICE_ACCOUNT_KEY_PATH', '../serviceAccountKey.json')
     
     # MongoDB
     MONGODB_URI = os.getenv('MONGODB_URI')
-    MONGODB_DB_NAME = os.getenv('MONGODB_DB_NAME', 'yt_downloader')
+    MONGODB_DB_NAME = os.getenv('MONGODB_DB_NAME', 'yt-downloader')
     
     # Redis
-    REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
-    REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
-    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')
-    REDIS_DB = int(os.getenv('REDIS_DB', 0))
+    REDIS_URI = os.getenv('REDIS_URI', 'redis://localhost:6379/0')
     
     # JWT
     JWT_PUBLIC_SECRET = os.getenv('JWT_PUBLIC_SECRET')

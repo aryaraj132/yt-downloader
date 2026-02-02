@@ -11,10 +11,9 @@ try:
     
     # Try to connect to Redis
     try:
-        redis_client = redis.Redis(
-            host=getattr(Config, 'REDIS_HOST', 'localhost'),
-            port=getattr(Config, 'REDIS_PORT', 6379),
-            db=getattr(Config, 'REDIS_DB', 0),
+        redis_uri = getattr(Config, 'REDIS_URI', 'redis://localhost:6379/0')
+        redis_client = redis.from_url(
+            redis_uri,
             decode_responses=True,
             socket_connect_timeout=2
         )

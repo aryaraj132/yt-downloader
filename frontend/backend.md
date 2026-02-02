@@ -1080,9 +1080,8 @@ FLASK_SECRET_KEY=your-flask-secret-here
 
 ```bash
 # Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=
+REDIS_URI=redis://localhost:6379/0
+
 
 # Application
 DOWNLOADS_DIR=./downloads
