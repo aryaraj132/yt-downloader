@@ -45,6 +45,15 @@ export interface Video {
     status: string;
     created_at: string;
     file_available: boolean;
+    youtube_video_id?: string;
+    clipped_by?: string;
+}
+
+export interface PaginationInfo {
+    page: number;
+    limit: number;
+    total: number;
+    has_more: boolean;
 }
 
 export const videoService = {
@@ -74,8 +83,8 @@ export const videoService = {
         return response.data;
     },
 
-    async listUserVideos(): Promise<{ videos: Video[] }> {
-        const response = await api.get('/video/list');
+    async listUserVideos(page: number = 1, limit: number = 20): Promise<{ videos: Video[]; pagination: PaginationInfo }> {
+        const response = await api.get(`/video/list?page=${page}&limit=${limit}`);
         return response.data;
     },
 

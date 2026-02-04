@@ -73,6 +73,20 @@ class Video:
         try:
             db = get_database()
             
+            # Extract YouTube video ID from URL if not provided
+            if not youtube_video_id and url:
+                import re
+                # YouTube URL patterns to extract video ID
+                patterns = [
+                    r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/live/)([a-zA-Z0-9_-]{11})',
+                    r'youtube\.com/v/([a-zA-Z0-9_-]{11})',
+                ]
+                for pattern in patterns:
+                    match = re.search(pattern, url)
+                    if match:
+                        youtube_video_id = match.group(1)
+                        break
+            
             # Create video document
             video_doc = {
                 'user_id': ObjectId(user_id),
@@ -100,6 +114,7 @@ class Video:
                 'chat_timestamp': chat_timestamp,
                 'public_token': public_token
             }
+
             
             result = db.videos.insert_one(video_doc)
             logger.info(f"Video info created for user {user_id}: {url}")

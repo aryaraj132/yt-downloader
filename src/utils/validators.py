@@ -73,6 +73,7 @@ def validate_youtube_url(url: str) -> Tuple[bool, Optional[str]]:
         r'(https?://)?(www\.)?(youtu\.be/[\w-]+)',
         r'(https?://)?(www\.)?(youtube\.com/embed/[\w-]+)',
         r'(https?://)?(www\.)?(youtube\.com/v/[\w-]+)',
+        r'(https?://)?(www\.)?(youtube\.com/live/[\w-]+)',
     ]
     
     for pattern in patterns:

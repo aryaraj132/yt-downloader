@@ -437,16 +437,44 @@ def get_video_status(video_id):
 @require_private_token
 def list_user_videos():
     """
-    List all videos for the authenticated user.
+    List all videos for the authenticated user with pagination support.
     Requires private authentication token.
+    
+    Query Parameters:
+        page: Page number (default: 1)
+        limit: Items per page (default: 20, max: 100)
     
     Returns:
         {
-            "videos": [...]
+            "videos": [...],
+            "pagination": {
+                "page": 1,
+                "limit": 20,
+                "total": 150,
+                "has_more": true
+            }
         }
     """
     try:
-        videos = Video.find_by_user(g.user_id)
+        # Get pagination parameters
+        page = max(1, int(request.args.get('page', 1)))
+        limit = min(100, max(1, int(request.args.get('limit', 20))))
+        skip = (page - 1) * limit
+        
+        db = get_database()
+        
+        # Get total count
+        total = db.videos.count_documents({'user_id': ObjectId(g.user_id)})
+        
+        # Get paginated videos
+        videos = list(db.videos.find(
+            {'user_id': ObjectId(g.user_id)}
+        ).sort('created_at', -1).skip(skip).limit(limit))
+        
+        # Get user info for clipper details
+        from src.models.user import User
+        user = User.find_by_id(g.user_id)
+        clipper_name = user.get('email', 'Unknown') if user else 'Unknown'
         
         video_list = []
         for video in videos:
@@ -457,14 +485,30 @@ def list_user_videos():
                 'end_time': video['end_time'],
                 'status': video['status'],
                 'created_at': video['created_at'].isoformat(),
-                'file_available': video.get('file_path') is not None and os.path.exists(video.get('file_path', ''))
+                'file_available': video.get('file_path') is not None and os.path.exists(video.get('file_path', '')),
+                'youtube_video_id': video.get('youtube_video_id'),
+                'clipped_by': clipper_name
             })
         
-        return jsonify({'videos': video_list}), 200
+        has_more = (skip + limit) < total
         
+        return jsonify({
+            'videos': video_list,
+            'pagination': {
+                'page': page,
+                'limit': limit,
+                'total': total,
+                'has_more': has_more
+            }
+        }), 200
+        
+    except ValueError as e:
+        logger.error(f"Invalid pagination parameters: {str(e)}")
+        return jsonify({'error': 'Invalid pagination parameters'}), 400
     except Exception as e:
         logger.error(f"List videos error: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
+
 
 
 @video_bp.route('/formats', methods=['POST'])

@@ -11,6 +11,7 @@ interface VideoCardProps {
     onDownload: (videoId: string) => void;
     onDelete: (videoId: string) => void;
     onShare?: (videoId: string) => void;
+    onClick?: (videoId: string) => void;
 }
 
 export const VideoCard: React.FC<VideoCardProps> = ({
@@ -18,8 +19,9 @@ export const VideoCard: React.FC<VideoCardProps> = ({
     onDownload,
     onDelete,
     onShare,
+    onClick,
 }) => {
-    const youtubeId = extractYoutubeVideoId(video.url);
+    const youtubeId = video.youtube_video_id || extractYoutubeVideoId(video.url);
     const thumbnailUrl = youtubeId
         ? `https://i.ytimg.com/vi/${youtubeId}/mqdefault.jpg`
         : '/placeholder-video.png';
@@ -46,8 +48,19 @@ export const VideoCard: React.FC<VideoCardProps> = ({
         }
     };
 
+    const handleCardClick = (e: React.MouseEvent) => {
+        // Don't trigger if clicking on buttons
+        if ((e.target as HTMLElement).closest('button')) {
+            return;
+        }
+        onClick?.(video.video_id);
+    };
+
     return (
-        <div className="glass-effect rounded-xl overflow-hidden hover:shadow-xl transition-all duration-300">
+        <div
+            className="glass-effect rounded-xl overflow-hidden hover:shadow-xl transition-all duration-300 cursor-pointer"
+            onClick={handleCardClick}
+        >
             {/* Thumbnail */}
             <div className="relative aspect-video bg-gray-200 dark:bg-gray-700">
                 <img
@@ -78,6 +91,13 @@ export const VideoCard: React.FC<VideoCardProps> = ({
                         <span>{formatDate(video.created_at)}</span>
                     </div>
                 </div>
+
+                {/* Clipper info */}
+                {video.clipped_by && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                        Clipped by: <span className="font-medium">{video.clipped_by}</span>
+                    </div>
+                )}
 
                 {/* Actions */}
                 <div className="flex items-center space-x-2 pt-2">

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const youtubeUrlSchema = z.string().refine(
     (url) => {
-        const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[a-zA-Z0-9_-]{11}/;
+        const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|live\/|v\/)|youtu\.be\/)[a-zA-Z0-9_-]{11}/;
         return youtubeRegex.test(url);
     },
     {
@@ -38,6 +38,8 @@ export const extractYoutubeVideoId = (url: string): string | null => {
         /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
         /(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]{11})/,
         /(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
+        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/live\/([a-zA-Z0-9_-]{11})/,
+        /(?:https?:\/\/)?(?:www\.)?youtube\.com\/v\/([a-zA-Z0-9_-]{11})/,
     ];
 
     for (const pattern of patterns) {
