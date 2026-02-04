@@ -32,17 +32,11 @@ export interface UserResponse {
 }
 
 export const authService = {
-    /**
-     * @deprecated Use Google OAuth instead (initiateGoogleLogin)
-     */
     async register(data: RegisterData): Promise<{ message: string; user_id: string }> {
         const response = await api.post('/auth/register', data);
         return response.data;
     },
 
-    /**
-     * @deprecated Use Google OAuth instead (initiateGoogleLogin)
-     */
     async login(data: LoginData): Promise<AuthResponse> {
         const response = await api.post('/auth/login', data);
         return response.data;
@@ -53,15 +47,12 @@ export const authService = {
         return response.data;
     },
 
-    /**
-     * @deprecated Not applicable for OAuth users
-     */
     async changePassword(data: ChangePasswordData): Promise<{ message: string }> {
         const response = await api.post('/auth/change-password', data);
         return response.data;
     },
 
-    async getPublicToken(): Promise<{ token: string; expires_in: number }> {
+    async getPublicToken(): Promise<{ token: string }> {
         const response = await api.get('/auth/token/public');
         return response.data;
     },

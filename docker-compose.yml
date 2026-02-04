@@ -7,8 +7,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: yt-downloader-backend
-    ports:
-      - "5000:5000"
+    # Port not exposed externally - accessed only via frontend API proxy
+    expose:
+      - "5000"
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
@@ -20,61 +21,26 @@ services:
     restart: unless-stopped
     networks:
       - yt-downloader-network
-    depends_on:
-      - redis
-      - mongo
 
   # Frontend Service (Next.js)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - BACKEND_URL=http://backend:5000
     container_name: yt-downloader-frontend
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://backend:5000
-    env_file:
-      - ./frontend/.env.local
+      - BACKEND_URL=http://backend:5000
     restart: unless-stopped
     networks:
       - yt-downloader-network
     depends_on:
       - backend
 
-  # Redis Service
-  redis:
-    image: redis:7-alpine
-    container_name: yt-downloader-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    restart: unless-stopped
-    networks:
-      - yt-downloader-network
-    command: redis-server --appendonly yes
-
-  # MongoDB Service
-  mongo:
-    image: mongo:7
-    container_name: yt-downloader-mongo
-    ports:
-      - "27017:27017"
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-admin}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-password}
-    volumes:
-      - mongo-data:/data/db
-    restart: unless-stopped
-    networks:
-      - yt-downloader-network
-
 networks:
   yt-downloader-network:
     driver: bridge
-
-volumes:
-  redis-data:
-  mongo-data:

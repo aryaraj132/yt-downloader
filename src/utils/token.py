@@ -19,19 +19,19 @@ def generate_public_token() -> str:
     """
     Generate a public API token for saving video information.
     This token has limited permissions and can be used publicly.
+    Public tokens do not expire - they are permanent keys stored in the user DB.
     
     Returns:
-        str: JWT token string
+        str: JWT token string (no expiration)
     """
     try:
         payload = {
             'type': TokenType.PUBLIC,
-            'exp': datetime.utcnow() + timedelta(seconds=Config.JWT_PUBLIC_EXPIRATION),
             'iat': datetime.utcnow()
         }
         
         token = jwt.encode(payload, Config.JWT_PUBLIC_SECRET, algorithm='HS256')
-        logger.debug("Public token generated successfully")
+        logger.debug("Public token generated successfully (no expiration)")
         return token
         
     except Exception as e:
@@ -39,14 +39,14 @@ def generate_public_token() -> str:
         raise
 
 
-def generate_private_token(user_id: str, session_id: str) -> str:
+
+def generate_private_token(user_id: str, session_id: Optional[str] = None) -> str:
     """
     Generate a private user token for authenticated operations.
-    This token includes user_id and session_id for full access.
     
     Args:
         user_id: MongoDB ObjectId of the user as string
-        session_id: Session ID from MongoDB/Redis
+        session_id: Session ID (optional, for backward compatibility or stateless)
         
     Returns:
         str: JWT token string
@@ -55,10 +55,12 @@ def generate_private_token(user_id: str, session_id: str) -> str:
         payload = {
             'type': TokenType.PRIVATE,
             'user_id': user_id,
-            'session_id': session_id,
             'exp': datetime.utcnow() + timedelta(seconds=Config.JWT_PRIVATE_EXPIRATION),
             'iat': datetime.utcnow()
         }
+        
+        if session_id:
+            payload['session_id'] = session_id
         
         token = jwt.encode(payload, Config.JWT_PRIVATE_SECRET, algorithm='HS256')
         logger.debug(f"Private token generated for user {user_id}")
@@ -126,6 +128,7 @@ def verify_public_token(token: str) -> bool:
     return payload.get('type') == TokenType.PUBLIC
 
 
+
 def verify_private_token(token: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Verify that a token is a valid private token and extract user information.
@@ -147,7 +150,7 @@ def verify_private_token(token: str) -> Tuple[Optional[str], Optional[str], Opti
     user_id = payload.get('user_id')
     session_id = payload.get('session_id')
     
-    if not user_id or not session_id:
-        return None, None, "Token missing required fields"
+    if not user_id:
+        return None, None, "Token missing user_id"
     
     return user_id, session_id, None

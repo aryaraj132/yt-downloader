@@ -26,6 +26,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Copy Firebase service account key into the image
+COPY firebase-service-account.json /app/firebase-service-account.json
+
 # Setup FFmpeg before starting the server
 RUN python setup_ffmpeg.py
 
@@ -38,6 +41,7 @@ EXPOSE 5000
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_ENV=production
+ENV FIREBASE_SERVICE_ACCOUNT_KEY_PATH=/app/firebase-service-account.json
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

@@ -56,7 +56,7 @@ def require_public_token(f):
 
 def require_private_token(f):
     """
-    Middleware to require a valid OAuth token.
+    Middleware to require a valid authentication token (JWT or OAuth).
     Used for authenticated endpoints.
     Attaches user data to request context (g.user and g.user_id).
     """
@@ -68,7 +68,34 @@ def require_private_token(f):
             logger.warning("Missing token in request")
             return jsonify({'error': 'Missing authentication token'}), 401
         
-        # Verify token with Google
+        # 1. Try to verify as JWT first
+        from src.utils.token import verify_private_token
+        user_id, session_id, jwt_error = verify_private_token(token)
+        
+        if user_id and not jwt_error:
+            # Valid JWT
+            user = User.find_by_id(user_id)
+            if not user:
+                return jsonify({'error': 'User not found'}), 401
+            
+            g.user_id = user_id
+            g.user = {
+                '_id': user_id,
+                'email': user['email'],
+                'created_at': user['created_at'].isoformat() if user.get('created_at') else None
+            }
+            g.auth_method = 'jwt'
+            g.has_youtube_auth = False # JWT users might not have YouTube scopes unless linked
+            
+            # Check if this user also has linked Google account for YouTube
+            if user.get('google_access_token'):
+                g.google_access_token = user.get('google_access_token')
+                g.google_refresh_token = user.get('google_refresh_token')
+                g.has_youtube_auth = True
+            
+            return f(*args, **kwargs)
+
+        # 2. If not a valid JWT, try to verify as Google OAuth token
         try:
             import requests
             response = requests.get(
@@ -76,44 +103,47 @@ def require_private_token(f):
                 params={'access_token': token}
             )
             
-            if response.status_code != 200:
-                logger.warning("Invalid OAuth token")
+            if response.status_code == 200:
+                token_info = response.json()
+                
+                # Get user by email from token info
+                email = token_info.get('email')
+                if not email:
+                    logger.warning("No email in token info")
+                    return jsonify({'error': 'Invalid token'}), 401
+                
+                # Find user by email
+                user = User.find_by_email(email)
+                
+                if not user:
+                    logger.warning(f"User not found: {email}")
+                    # Optional: Auto-create user if they don't exist? (Maybe not for implicit login)
+                    return jsonify({'error': 'User not found. Please register or login with Google first.'}), 401
+                
+                user_id = str(user['_id'])
+                
+                # Attach user data to request context
+                g.user_id = user_id
+                g.user = {
+                    '_id': user_id,
+                    'email': user['email'],
+                    'created_at': user['created_at'].isoformat() if user.get('created_at') else None
+                }
+                
+                # Attach OAuth token for YouTube API calls
+                g.google_access_token = token
+                g.google_refresh_token = user.get('google_refresh_token')
+                g.has_youtube_auth = True
+                g.auth_method = 'oauth'
+                
+                logger.debug(f"Authenticated user via OAuth: {user['email']}")
+                
+                # Proceed with the request
+                return f(*args, **kwargs)
+            else:
+                # Both JWT and OAuth failed
+                logger.warning(f"Token verification failed. JWT Error: {jwt_error}")
                 return jsonify({'error': 'Invalid or expired token'}), 401
-            
-            token_info = response.json()
-            
-            # Get user by email from token info
-            email = token_info.get('email')
-            if not email:
-                logger.warning("No email in token info")
-                return jsonify({'error': 'Invalid token'}), 401
-            
-            # Find user by email
-            user = User.find_by_email(email)
-            
-            if not user:
-                logger.warning(f"User not found: {email}")
-                return jsonify({'error': 'User not found'}), 401
-            
-            user_id = str(user['_id'])
-            
-            # Attach user data to request context
-            g.user_id = user_id
-            g.user = {
-                '_id': user_id,
-                'email': user['email'],
-                'created_at': user['created_at'].isoformat() if user.get('created_at') else None
-            }
-            
-            # Attach OAuth token for YouTube API calls
-            g.google_access_token = token
-            g.google_refresh_token = user.get('google_refresh_token')
-            g.has_youtube_auth = True
-            
-            logger.debug(f"Authenticated user: {user['email']}")
-            
-            # Proceed with the request
-            return f(*args, **kwargs)
             
         except Exception as e:
             logger.error(f"Token verification error: {str(e)}")

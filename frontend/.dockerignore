@@ -36,6 +36,9 @@ Thumbs.db
 *.md
 !README.md
 
+# Exclude backend-only files
+firebase-service-account.json
+
 # Test files
 coverage
 .nyc_output

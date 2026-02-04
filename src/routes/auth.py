@@ -76,7 +76,7 @@ def register():
 @auth_bp.route('/login', methods=['POST'])
 def login():
     """
-    Login and create a new session.
+    Login with email and password.
     
     Request body:
         {
@@ -92,10 +92,45 @@ def login():
         }
     """
     try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'Invalid request body'}), 400
+            
+        email = data.get('email')
+        password = data.get('password')
+        
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+            
+        # Find user
+        user = User.find_by_email(email)
+        
+        if not user:
+            return jsonify({'error': 'Invalid email or password'}), 401
+            
+        # Verify password
+        if not User.verify_password(user, password):
+            return jsonify({'error': 'Invalid email or password'}), 401
+            
+        # Generate token
+        user_id = str(user['_id'])
+        from src.utils.token import generate_private_token
+        token = generate_private_token(user_id)
+        
+        # Simplify user object for response
+        user_response = {
+            'id': user_id,
+            'email': user['email']
+        }
+        
+        logger.info(f"User logged in: {email}")
+        
         return jsonify({
-            'error': 'Email/password login is deprecated. Please use Google OAuth.',
-            'oauth_url': '/api/auth/google/login'
-        }), 410  # 410 Gone - resource no longer available
+            'message': 'Login successful',
+            'token': token,
+            'user': user_response
+        }), 200
         
     except Exception as e:
         logger.error(f"Login error: {str(e)}")
@@ -127,14 +162,40 @@ def logout():
 @require_private_token
 def change_password():
     """
-    DEPRECATED: Not applicable for OAuth users.
-    Password changes should be done through Google Account settings.
+    Change user password.
+    Requires authentication.
     """
     try:
-        return jsonify({
-            'error': 'Password change not supported for OAuth users. Manage your password in your Google Account.',
-            'google_account_url': 'https://myaccount.google.com/security'
-        }), 410  # 410 Gone
+        data = request.get_json()
+        current_password = data.get('current_password')
+        new_password = data.get('new_password')
+        
+        if not current_password or not new_password:
+            return jsonify({'error': 'Current and new password are required'}), 400
+            
+        user_id = g.user_id
+        user = User.find_by_id(user_id)
+        
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+            
+        # Check if user has a password (OAuth users might not)
+        if not user.get('password_hash'):
+            return jsonify({'error': 'This account uses Google Login. Note: You can set a password to enable email/password login.'}), 400
+            
+        # Verify current password
+        if not User.verify_password(user, current_password):
+            return jsonify({'error': 'Incorrect current password'}), 401
+            
+        # Update to new password
+        # Note: In a real app we'd validate new_password strength here
+        success = User.update_password(user_id, new_password)
+        
+        if success:
+            logger.info(f"Password changed for user {user['email']}")
+            return jsonify({'message': 'Password changed successfully'}), 200
+        else:
+            return jsonify({'error': 'Failed to update password'}), 500
         
     except Exception as e:
         logger.error(f"Change password error: {str(e)}")
@@ -179,18 +240,29 @@ def create_public_token():
 def get_public_token():
     """
     Get the current public token for the authenticated user.
+    If no token exists, one is automatically generated.
     
     Returns:
         {
-            "token": "..." or null
+            "token": "..."
         }
     """
     try:
         user_id = g.user_id
         user = User.find_by_id(user_id)
         
+        token = user.get('public_token')
+        
+        # Auto-generate if missing
+        if not token:
+            logger.info(f"No public token found for user {user_id}, generating new one...")
+            token = User.generate_public_token(user_id)
+            
+            if not token:
+                return jsonify({'error': 'Failed to generate token'}), 500
+        
         return jsonify({
-            'token': user.get('public_token')
+            'token': token
         }), 200
         
     except Exception as e:

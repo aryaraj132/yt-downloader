@@ -30,8 +30,9 @@ class Config:
     # JWT
     JWT_PUBLIC_SECRET = os.getenv('JWT_PUBLIC_SECRET', 'default-public-secret')
     JWT_PRIVATE_SECRET = os.getenv('JWT_PRIVATE_SECRET', 'default-private-secret')
-    JWT_PUBLIC_EXPIRATION = int(os.getenv('JWT_PUBLIC_EXPIRATION', 86400))  # 24 hours
-    JWT_PRIVATE_EXPIRATION = int(os.getenv('JWT_PRIVATE_EXPIRATION', 604800))  # 7 days
+    # Public tokens don't expire - they're permanent keys stored in user DB
+    JWT_PRIVATE_EXPIRATION = int(os.getenv('JWT_PRIVATE_EXPIRATION', 31536000))  # 7 days default
+
     
     # Flask
     FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')

@@ -23,6 +23,9 @@ COPY . .
 
 # Set environment variables for build
 ENV NEXT_TELEMETRY_DISABLED=1
+# Backend URL for Next.js API routes (will be overridden in docker-compose)
+ARG BACKEND_URL=http://localhost:5000
+ENV BACKEND_URL=$BACKEND_URL
 
 # Build Next.js application
 RUN npm run build
@@ -33,6 +36,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# Backend URL for API proxy (will be overridden in docker-compose)
+ENV BACKEND_URL=http://localhost:5000
 
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs
