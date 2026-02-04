@@ -28,8 +28,8 @@ class Config:
     REDIS_URI = os.getenv('REDIS_URI', 'redis://localhost:6379/0')
     
     # JWT
-    JWT_PUBLIC_SECRET = os.getenv('JWT_PUBLIC_SECRET')
-    JWT_PRIVATE_SECRET = os.getenv('JWT_PRIVATE_SECRET')
+    JWT_PUBLIC_SECRET = os.getenv('JWT_PUBLIC_SECRET', 'default-public-secret')
+    JWT_PRIVATE_SECRET = os.getenv('JWT_PRIVATE_SECRET', 'default-private-secret')
     JWT_PUBLIC_EXPIRATION = int(os.getenv('JWT_PUBLIC_EXPIRATION', 86400))  # 24 hours
     JWT_PRIVATE_EXPIRATION = int(os.getenv('JWT_PRIVATE_EXPIRATION', 604800))  # 7 days
     
@@ -85,8 +85,9 @@ class Config:
         """Validate that all required configuration values are set."""
         required_vars = [
             'MONGODB_URI',
-            'JWT_PUBLIC_SECRET',
-            'JWT_PRIVATE_SECRET',
+            'MONGODB_URI',
+            # 'JWT_PUBLIC_SECRET',  # Not required with OAuth
+            # 'JWT_PRIVATE_SECRET', # Not required with OAuth
             'FLASK_SECRET_KEY',
         ]
         

@@ -210,9 +210,116 @@ class YouTubeService:
         except Exception as e:
             logger.error(f"Failed to get available formats: {str(e)}")
             return None
+            if cookies_file and os.path.exists(cookies_file):
+                try:
+                    os.remove(cookies_file)
+                except Exception:
+                    pass
+
+    @staticmethod
+    def download_segment(
+        url: str,
+        start_time: int,
+        end_time: int,
+        output_path: str,
+        cookies: Optional[str] = None,
+        format_preference: Optional[str] = None,
+        resolution_preference: Optional[str] = None,
+        progress_callback = None
+    ) -> bool:
+        """
+        Download a specific segment of a video.
+        
+        Args:
+            url: YouTube video URL
+            start_time: Start time in seconds
+            end_time: End time in seconds
+            output_path: Destination file path
+            cookies: Optional Netscape-formatted cookies string
+            format_preference: 'mp4', 'webm', etc.
+            resolution_preference: '1080p', '720p', etc.
+            progress_callback: Optional callback for progress updates
+            
+        Returns:
+            bool: True if successful
+        """
+        cookies_file = None
+        try:
+            import sys
+            import uuid
+            import time
+            import os
+            
+            # Construct command
+            cmd = [
+                sys.executable, '-m', 'yt_dlp',
+                '--force-overwrites',
+                '--no-warnings',
+                '--download-sections', f"*{start_time}-{end_time}",
+                '--output', output_path
+            ]
+            
+            # Handle format/resolution
+            format_spec = "bestvideo+bestaudio/best"  # Default
+            
+            if format_preference or resolution_preference:
+                # Basic format selection logic
+                if resolution_preference and resolution_preference != 'best':
+                    height = resolution_preference.replace('p', '')
+                    format_spec = f"bestvideo[height<={height}]+bestaudio/best[height<={height}]"
+                
+                if format_preference and format_preference != 'best':
+                    # If specific container is requested, we might need merge-output-format
+                    cmd.extend(['--merge-output-format', format_preference])
+            
+            cmd.extend(['-f', format_spec])
+            
+            # Handle cookies
+            if cookies:
+                cookies_filename = f"cookies_dl_{uuid.uuid4()}_{int(time.time())}.txt"
+                cookies_file = os.path.join(os.getcwd(), cookies_filename)
+                
+                with open(cookies_file, 'w', encoding='utf-8') as f:
+                    f.write(cookies)
+                
+                cmd.extend(['--cookies', cookies_file])
+            
+            # Add URL
+            cmd.append(url)
+            
+            logger.info(f"Downloading segment start={start_time} end={end_time} to {output_path}")
+            
+            # Execute
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            # Read progress if callback provided
+            # Note: For simplicity in this implementation we just wait, 
+            # but real progress parsing would read stdout line by line
+            stdout, stderr = process.communicate()
+            
+            if process.returncode != 0:
+                logger.error(f"yt-dlp download failed: {stderr}")
+                return False
+                
+            logger.info("Download completed successfully")
+            if progress_callback:
+                progress_callback({'percent': 100})
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"Segment download error: {str(e)}")
+            return False
+            
         finally:
             if cookies_file and os.path.exists(cookies_file):
                 try:
                     os.remove(cookies_file)
                 except Exception:
                     pass
+

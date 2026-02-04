@@ -5,6 +5,7 @@ from flask import request, jsonify, g
 
 from src.utils.token import verify_public_token
 from src.models.user import User
+from src.config import Config
 
 logger = logging.getLogger(__name__)
 

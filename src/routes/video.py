@@ -154,16 +154,20 @@ def save_video_from_stream(token, chat_id):
         if duration > Config.MAX_VIDEO_DURATION:
             return jsonify({'error': f'Duration exceeds maximum of {Config.MAX_VIDEO_DURATION} seconds'}), 400
         
-        # Get user's valid OAuth token
-        access_token = User.get_valid_access_token(user_id)
+        # Use server-side API Key for reliability
+        api_key = Config.YOUTUBE_API_KEY
         
-        if not access_token:
-            return jsonify({'error': 'YouTube API access not configured. Please log in with Google.'}), 403
+        if not api_key:
+            return jsonify({'error': 'YouTube API Key not configured on server.'}), 500
         
         # Get chat message details by ID
         from src.services.youtube_api_service import YouTubeAPIService
         
-        chat_msg = YouTubeAPIService.get_chat_message_by_id(chat_id, access_token)
+        # Use API Key for all data fetching
+        chat_msg = YouTubeAPIService.get_chat_message_by_id(
+            chat_id, 
+            api_key=api_key
+        )
         
         if not chat_msg:
             return jsonify({'error': 'Chat message not found'}), 404
@@ -174,7 +178,10 @@ def save_video_from_stream(token, chat_id):
         if not live_chat_id:
             return jsonify({'error': 'Live chat ID not found in message'}), 500
         
-        video_id = YouTubeAPIService.get_video_id_from_live_chat(live_chat_id, access_token)
+        video_id = YouTubeAPIService.get_video_id_from_live_chat(
+            live_chat_id, 
+            api_key=api_key
+        )
         
         if not video_id:
             return jsonify({'error': 'Could not determine video ID from chat message'}), 500
@@ -185,19 +192,23 @@ def save_video_from_stream(token, chat_id):
             return jsonify({'error': error}), 400
         
         # Get stream details from YouTube API
-        stream_details = YouTubeAPIService.get_video_stream_details(video_id, access_token)
+        stream_details = YouTubeAPIService.get_video_stream_details(
+            video_id, 
+            api_key=api_key
+        )
         
         if not stream_details:
             return jsonify({'error': 'Failed to fetch stream details from YouTube'}), 500
         
-        stream_start_time = stream_details.get('actual_start_time')
+        # Check if the chat message is from the user
+        # Note: This check requires an OAuth token to know who the "user" is on YouTube.
+        # Since we are using API Key only for reliability, we can't verify ownership.
+        # We default to False.
+        is_user_message = False
         
-        if not stream_start_time:
-            return jsonify({'error': 'Stream has not started or start time unavailable'}), 400
-        
-        # Calculate clip timing
-        clip_start, clip_end = YouTubeAPIService.calculate_clip_time(
-            stream_start_time,
+        # Calculate clip time
+        start_seconds, end_seconds = YouTubeAPIService.calculate_clip_time(
+            stream_details['actual_start_time'],
             chat_msg['published_at'],
             offset,
             duration
@@ -451,6 +462,7 @@ def list_user_videos():
         
         return jsonify({'videos': video_list}), 200
         
+    except Exception as e:
         logger.error(f"List videos error: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
 

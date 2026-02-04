@@ -8,33 +8,26 @@ logger = logging.getLogger(__name__)
 
 
 class YouTubeAPIService:
-    """Service for interacting with YouTube Data API v3 using OAuth tokens."""
+    """Service for interacting with YouTube Data API v3 using OAuth tokens or API Key."""
     
     API_BASE_URL = "https://www.googleapis.com/youtube/v3"
     
     @staticmethod
     def get_chat_message_by_id(
         chat_id: str,
-        access_token: str
+        access_token: Optional[str] = None,
+        api_key: Optional[str] = None
     ) -> Optional[Dict]:
         """
         Get chat message details by message ID using YouTube Data API.
         
         Args:
-            chat_id: YouTube chat message ID (e.g., "LCC.Cg0KCy1234abcdefgh")
-            access_token: User's OAuth access token
+            chat_id: YouTube chat message ID
+            access_token: User's OAuth access token (optional if api_key provided)
+            api_key: YouTube API Key (optional)
             
         Returns:
-            Dictionary with message details:
-            {
-                'id': str,
-                'message_text': str,
-                'author_display_name': str,
-                'author_channel_id': str,
-                'published_at': datetime,
-                'live_chat_id': str
-            }
-            None if message not found or error
+            Dictionary with message details or None
         """
         try:
             # YouTube API endpoint for liveChatMessages
@@ -45,9 +38,14 @@ class YouTubeAPIService:
                 'id': chat_id
             }
             
-            headers = {
-                'Authorization': f'Bearer {access_token}'
-            }
+            headers = {}
+            if api_key:
+                params['key'] = api_key
+            elif access_token:
+                headers['Authorization'] = f'Bearer {access_token}'
+            else:
+                logger.error("No authentication provided (api_key or access_token required)")
+                return None
             
             response = requests.get(url, params=params, headers=headers)
             
@@ -92,30 +90,40 @@ class YouTubeAPIService:
     @staticmethod
     def get_video_id_from_live_chat(
         live_chat_id: str,
-        access_token: str
+        access_token: Optional[str] = None,
+        api_key: Optional[str] = None
     ) -> Optional[str]:
         """
         Get video ID from live chat ID.
         
         Args:
-            live_chat_id: YouTube live chat ID (from chat message response)
-            access_token: User's OAuth access token
+            live_chat_id: YouTube live chat ID
+            access_token: User's OAuth access token (optional)
+            api_key: YouTube API Key (optional)
             
         Returns:
             Video ID as string, or None if not found
         """
         try:
+            headers = {}
+            auth_params = {}
+            
+            if api_key:
+                auth_params['key'] = api_key
+            elif access_token:
+                headers['Authorization'] = f'Bearer {access_token}'
+            else:
+                logger.error("No authentication provided")
+                return None
+
             # Search for the video using liveBroadcasts endpoint
             url = f"{YouTubeAPIService.API_BASE_URL}/liveBroadcasts"
             
             params = {
                 'part': 'id,snippet',
                 'id': live_chat_id,
-                'maxResults': 1
-            }
-            
-            headers = {
-                'Authorization': f'Bearer {access_token}'
+                'maxResults': 1,
+                **auth_params
             }
             
             response = requests.get(url, params=params, headers=headers)
@@ -128,7 +136,8 @@ class YouTubeAPIService:
                     'part': 'id',
                     'eventType': 'live',
                     'type': 'video',
-                    'maxResults': 50
+                    'maxResults': 50,
+                    **auth_params
                 }
                 
                 response = requests.get(url, params=params, headers=headers)
@@ -322,34 +331,38 @@ class YouTubeAPIService:
             return None
     
     @staticmethod
-    def get_video_stream_details(video_id: str, access_token: str) -> Optional[Dict]:
+    def get_video_stream_details(
+        video_id: str, 
+        access_token: Optional[str] = None,
+        api_key: Optional[str] = None
+    ) -> Optional[Dict]:
         """
         Get livestream details including start time for a video.
         
         Args:
             video_id: YouTube video ID
-            access_token: OAuth access token
+            access_token: OAuth access token (optional)
+            api_key: YouTube API Key (optional)
             
         Returns:
             Dict containing stream details or None
-            {
-                'video_id': str,
-                'title': str,
-                'actual_start_time': datetime,
-                'actual_end_time': datetime | None,
-                'scheduled_start_time': datetime,
-                'is_live': bool
-            }
         """
         try:
             url = f"{YouTubeAPIService.API_BASE_URL}/videos"
+            
             params = {
                 'id': video_id,
                 'part': 'snippet,liveStreamingDetails,status'
             }
-            headers = {
-                'Authorization': f'Bearer {access_token}'
-            }
+            
+            headers = {}
+            if api_key:
+                params['key'] = api_key
+            elif access_token:
+                headers['Authorization'] = f'Bearer {access_token}'
+            else:
+                logger.error("No authentication provided")
+                return None
             
             response = requests.get(url, params=params, headers=headers)
             
