@@ -26,8 +26,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── 1. Load .env (only SERVICE_ACCOUNT_JSON & key path are needed here) ──
-load_dotenv()
+# ── 1. Load .env ─────────────────────────────────────────────────────
+# .env lives at the project root (one level above backend/).
+# In Docker, env vars are injected directly so this is a no-op.
+_backend_dir = Path(__file__).resolve().parent
+_project_root = _backend_dir.parent
+_env_file = _project_root / '.env'
+if _env_file.exists():
+    load_dotenv(_env_file)
+else:
+    # Fallback: try CWD (for Docker or when .env is alongside backend files)
+    load_dotenv()
 
 
 # ─────────────────────────────────────────────────────────────────────

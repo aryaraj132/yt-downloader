@@ -4,7 +4,7 @@ services:
   # Backend Service (Python + Node.js)
   backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
     container_name: yt-downloader-backend
     # Port not exposed externally - accessed only via frontend API proxy
@@ -16,8 +16,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./downloads:/app/downloads
-      - ./logs:/app/logs
+      - ./backend/downloads:/app/downloads
+      - ./backend/logs:/app/logs
     restart: unless-stopped
     networks:
       - yt-downloader-network

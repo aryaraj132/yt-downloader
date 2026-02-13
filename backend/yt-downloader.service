@@ -6,9 +6,10 @@ After=network.target mongodb.service redis.service
 Type=notify
 User=www-data
 Group=www-data
-WorkingDirectory=/var/www/yt-downloader
-Environment="PATH=/var/www/yt-downloader/venv/bin"
-ExecStart=/var/www/yt-downloader/venv/bin/gunicorn -c gunicorn_config.py "start_server:create_application()"
+WorkingDirectory=/var/www/yt-downloader/backend
+Environment="PATH=/var/www/yt-downloader/backend/venv/bin"
+EnvironmentFile=/var/www/yt-downloader/.env
+ExecStart=/var/www/yt-downloader/backend/venv/bin/gunicorn -c gunicorn_config.py "start_server:create_application()"
 Restart=always
 RestartSec=10
 
