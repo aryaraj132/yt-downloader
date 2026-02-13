@@ -26,6 +26,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ── 0.1 Setup PATH for FFmpeg ───────────────────────────────────────
+# Ensure local bin/ directory is in PATH so yt-dlp can find ffmpeg
+_backend_dir = Path(__file__).resolve().parent
+_bin_dir = _backend_dir / 'bin'
+if _bin_dir.exists():
+    os.environ["PATH"] = str(_bin_dir) + os.pathsep + os.environ["PATH"]
+    logger.info(f"Added {_bin_dir} to PATH")
+
 # ── 1. Load .env ─────────────────────────────────────────────────────
 # .env lives at the project root (one level above backend/).
 # In Docker, env vars are injected directly so this is a no-op.
@@ -103,9 +111,9 @@ def load_remote_config():
         logger.info("✓ Firebase Admin SDK initialized")
 
     environment = os.getenv('ENVIRONMENT', 'local')
-    if environment in ('local',):
-        logger.info("ENVIRONMENT is 'local' – skipping Remote Config fetch")
-        return
+    #if environment in ('local',):
+        #logger.info("ENVIRONMENT is 'local' – skipping Remote Config fetch")
+        #return
 
     try:
         from firebase_admin import remote_config
