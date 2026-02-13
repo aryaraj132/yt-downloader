@@ -13,9 +13,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
+node_modules/
+.next/
 sdist/
 var/
 wheels/
