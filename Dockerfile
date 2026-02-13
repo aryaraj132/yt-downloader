@@ -26,26 +26,28 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Copy Firebase service account key into the image
-COPY firebase-service-account.json /app/firebase-service-account.json
-
-# Setup FFmpeg before starting the server
-RUN python setup_ffmpeg.py
-
 # Create necessary directories
-RUN mkdir -p downloads bin logs
+RUN mkdir -p downloads uploads bin logs
 
 # Expose port (adjust as needed)
 EXPOSE 5000
 
 # Set environment variables
+ARG FIREBASE_SERVICE_ACCOUNT_KEY_PATH
+ENV FIREBASE_SERVICE_ACCOUNT_KEY_PATH=$FIREBASE_SERVICE_ACCOUNT_KEY_PATH
+ARG SERVICE_ACCOUNT_JSON
+ENV SERVICE_ACCOUNT_JSON=$SERVICE_ACCOUNT_JSON
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_ENV=production
-ENV FIREBASE_SERVICE_ACCOUNT_KEY_PATH=/app/firebase-service-account.json
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:5000/health || exit 1
 
-# Start the server using gunicorn
+# Start the server using gunicorn via start_server.py bootstrap
+# The bootstrap flow handles:
+#   1. Creating firebase-service-account.json from SERVICE_ACCOUNT_JSON env var
+#   2. Fetching Firebase Remote Config and injecting into env
+#   3. Setting up FFmpeg
+#   4. Starting the Flask app
 CMD ["gunicorn", "-c", "gunicorn_config.py", "start_server:create_application()"]

@@ -23,24 +23,20 @@ The application consists of four services:
 Create a `.env` file in the root directory with the following variables:
 
 ```bash
-# Flask Configuration
-FLASK_ENV=production
-SECRET_KEY=your-secret-key-here
+# Firebase service account JSON (the full JSON content from Firebase Console)
+SERVICE_ACCOUNT_JSON={"type": "service_account", "project_id": "...", ...}
 
-# MongoDB Configuration
-MONGO_URI=mongodb://admin:password@mongo:27017/yt-downloader?authSource=admin
-MONGO_USERNAME=admin
-MONGO_PASSWORD=password
+# Filename for the credentials file (created automatically at startup)
+FIREBASE_SERVICE_ACCOUNT_KEY_PATH=firebase-service-account.json
 
-# Redis Configuration
-REDIS_URI=redis://redis:6379/0
-
-# Firebase Configuration (if using)
-FIREBASE_CREDENTIALS_PATH=/app/firebase-credentials.json
-
-# Server Configuration
-PORT=5000
+# Environment: set to 'local' to skip Remote Config and use .env only
+# In production/Docker, set to 'prod' to fetch config from Firebase Remote Config
+ENVIRONMENT=prod
 ```
+
+> **Note:** All other configuration values (MONGODB_URI, REDIS_URI, FLASK_SECRET_KEY, etc.)
+> are managed via **Firebase Remote Config** and injected into the environment at startup.
+> For local development, set `ENVIRONMENT=local` and add the values directly to `.env`.
 
 Create a `.env.local` file in the `frontend/` directory:
 
@@ -103,11 +99,13 @@ docker run -p 3000:3000 yt-downloader-frontend
 
 - **Base Image**: Python 3.14.2-slim
 - **Additional**: Node.js 20.x installed
-- **Key Steps**:
-  1. Installs system dependencies
-  2. Installs Python packages from `requirements.txt`
-  3. Runs `setup_ffmpeg.py` to configure FFmpeg
-  4. Sets up gunicorn for production server
+- **Entrypoint**: `gunicorn -c gunicorn_config.py 'start_server:create_application()'`
+- **Bootstrap flow** (runs at container startup via `start_server.py`):
+  1. Creates `firebase-service-account.json` from `SERVICE_ACCOUNT_JSON` env var
+  2. Initializes Firebase Admin SDK
+  3. Fetches Remote Config and injects values into environment
+  4. Sets up FFmpeg (verify/install)
+  5. Starts Flask app via gunicorn
 
 ### Frontend Dockerfile
 
@@ -141,12 +139,13 @@ docker-compose up -d --build --force-recreate
 
 ### Environment Variables for Production
 
-Ensure you update these in your `.env` file:
+Your `.env` file only needs three variables:
 
-- Set `FLASK_ENV=production`
-- Use strong `SECRET_KEY`
-- Configure proper MongoDB credentials
-- Set up Firebase credentials (if using)
+- `SERVICE_ACCOUNT_JSON` — Full Firebase service account JSON
+- `FIREBASE_SERVICE_ACCOUNT_KEY_PATH` — Filename for credentials file (e.g. `firebase-service-account.json`)
+- `ENVIRONMENT=prod` — Triggers Remote Config fetch at startup
+
+All other config (MONGODB_URI, REDIS_URI, FLASK_SECRET_KEY, etc.) is pulled from **Firebase Remote Config** automatically.
 
 ### Health Checks
 
@@ -214,7 +213,7 @@ services:
   backend:
     ports:
       - "8080:5000"  # Change 8080 to your desired port
-  
+
   frontend:
     ports:
       - "3001:3000"  # Change 3001 to your desired port
@@ -275,11 +274,11 @@ Consider adding monitoring tools:
 ```yaml
 services:
   # ... existing services ...
-  
+
   prometheus:
     image: prom/prometheus
     # ... configuration ...
-  
+
   grafana:
     image: grafana/grafana
     # ... configuration ...

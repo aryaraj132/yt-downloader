@@ -1,4 +1,10 @@
-"""Gunicorn configuration for production deployment."""
+"""
+Gunicorn configuration for production deployment.
+
+NOTE: When gunicorn loads this config, start_server.py's bootstrap has
+already run (via create_application()), so all Remote Config values
+are in os.environ by the time gunicorn reads them.
+"""
 import multiprocessing
 import os
 
@@ -13,9 +19,9 @@ worker_connections = 1000
 timeout = 300  # 5 minutes for video processing
 keepalive = 2
 
-# Logging
-accesslog = os.getenv('ACCESS_LOG', '/var/log/yt-downloader/access.log')
-errorlog = os.getenv('ERROR_LOG', '/var/log/yt-downloader/error.log')
+# Logging (defaults to stdout/stderr; set ACCESS_LOG/ERROR_LOG env vars for files)
+accesslog = os.getenv('ACCESS_LOG', '-')
+errorlog = os.getenv('ERROR_LOG', '-')
 loglevel = os.getenv('LOG_LEVEL', 'info')
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 
@@ -33,8 +39,15 @@ tmp_upload_dir = None
 # Path to the application
 pythonpath = os.path.dirname(__file__)
 
+
 def on_starting(server):
     """Called just before the master process is initialized."""
+    # Ensure log directory exists for gunicorn
+    for log_path in [accesslog, errorlog]:
+        if log_path and log_path != '-':
+            log_dir = os.path.dirname(log_path)
+            if log_dir:
+                os.makedirs(log_dir, exist_ok=True)
     print("Starting YouTube Video Downloader server...")
 
 def on_reload(server):
