@@ -37,7 +37,7 @@ class Config:
     # Flask
     FLASK_SECRET_KEY = os.getenv('FLASK_SECRET_KEY')
     FLASK_ENV = os.getenv('FLASK_ENV', 'production')
-    PORT = int(os.getenv('PORT', 5001))
+    PORT = int(os.getenv('PORT', 5000))
 
     # Application
     DOWNLOADS_DIR = os.getenv('DOWNLOADS_DIR', './downloads')
