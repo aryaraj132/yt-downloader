@@ -17,4 +17,3 @@ if [[ -z "$dangling" ]]
     sudo docker rmi $dangling
 fi
 history -c
-sudo rm ~/.docker/config.json
