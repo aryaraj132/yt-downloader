@@ -61,7 +61,7 @@ jobs:
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/yt-downloader:${{ github.sha }}
             ${{ secrets.DOCKER_USERNAME }}/yt-downloader:latest
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
 
       - name: extract build-cache from docker
         uses: overmindtech/buildkit-cache-dance/extract@main
