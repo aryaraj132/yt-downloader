@@ -31,6 +31,11 @@ export const TimeRangeSelector: React.FC<TimeRangeSelectorProps> = ({
         try {
             const seconds = parseTimeToSeconds(value);
             onStartTimeChange(seconds);
+
+            // Automatically set end time to start time + 40 seconds
+            const newEndTime = seconds + 40;
+            onEndTimeChange(newEndTime);
+            setEndTimeStr(formatSecondsToTime(newEndTime));
         } catch (err) {
             // Invalid format, don't update
         }
