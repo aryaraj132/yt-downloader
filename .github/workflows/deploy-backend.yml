@@ -64,7 +64,7 @@ jobs:
           build-args: |
             SERVICE_ACCOUNT_JSON=${{ secrets.SERVICE_ACCOUNT_JSON }}
             FIREBASE_SERVICE_ACCOUNT_KEY_PATH=${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY_PATH }}
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
 
       - name: extract build-cache from docker
         uses: overmindtech/buildkit-cache-dance/extract@main
