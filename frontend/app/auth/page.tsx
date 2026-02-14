@@ -119,7 +119,7 @@ export default function AuthPage() {
                                 </>
                             ) : (
                                 <>
-                                    Don't have an account?{' '}
+                                    Don&apos;t have an account?{' '}
                                     <button
                                         onClick={() => router.push('/auth?mode=register')}
                                         className="text-blue-400 hover:text-blue-300 font-medium transition-colors"
@@ -133,7 +133,7 @@ export default function AuthPage() {
 
                     {/* Features list */}
                     <div className="mt-8 pt-8 border-t border-gray-700/50">
-                        <h3 className="text-white font-medium mb-4 text-center">What you'll get:</h3>
+                        <h3 className="text-white font-medium mb-4 text-center">What you&apos;ll get:</h3>
                         <ul className="space-y-3">
                             <li className="flex items-start gap-3 text-gray-300 text-sm">
                                 <svg className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">

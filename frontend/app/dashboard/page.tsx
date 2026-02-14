@@ -28,38 +28,7 @@ export default function DashboardPage() {
     // Ref for infinite scroll observer
     const observerTarget = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        if (!isAuthenticated) {
-            router.push('/auth/login');
-            return;
-        }
-
-        fetchVideos(1, true);
-    }, [isAuthenticated, router]);
-
-    // Infinite scroll observer
-    useEffect(() => {
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries[0].isIntersecting && hasMore && !isLoadingMore && !isLoading) {
-                    fetchVideos(page + 1, false);
-                }
-            },
-            { threshold: 0.1 }
-        );
-
-        if (observerTarget.current) {
-            observer.observe(observerTarget.current);
-        }
-
-        return () => {
-            if (observerTarget.current) {
-                observer.unobserve(observerTarget.current);
-            }
-        };
-    }, [hasMore, isLoadingMore, isLoading, page]);
-
-    const fetchVideos = async (pageNum: number, isInitial: boolean = false) => {
+    const fetchVideos = useCallback(async (pageNum: number, isInitial: boolean = false) => {
         if (isInitial) {
             setIsLoading(true);
         } else {
@@ -83,7 +52,40 @@ export default function DashboardPage() {
             setIsLoading(false);
             setIsLoadingMore(false);
         }
-    };
+    }, [showToast]);
+
+    useEffect(() => {
+        if (!isAuthenticated) {
+            router.push('/auth/login');
+            return;
+        }
+
+        fetchVideos(1, true);
+    }, [isAuthenticated, router, fetchVideos]);
+
+    // Infinite scroll observer
+    useEffect(() => {
+        const currentTarget = observerTarget.current;
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0].isIntersecting && hasMore && !isLoadingMore && !isLoading) {
+                    fetchVideos(page + 1, false);
+                }
+            },
+            { threshold: 0.1 }
+        );
+
+        if (currentTarget) {
+            observer.observe(currentTarget);
+        }
+
+        return () => {
+            if (currentTarget) {
+                observer.unobserve(currentTarget);
+            }
+        };
+    }, [hasMore, isLoadingMore, isLoading, page, fetchVideos]);
+
 
     const handleCardClick = (videoId: string) => {
         const video = videos.find(v => v.video_id === videoId);
@@ -182,7 +184,7 @@ export default function DashboardPage() {
 
                         {!hasMore && videos.length > 0 && (
                             <p className="text-center text-gray-500 dark:text-gray-400 py-8">
-                                You've reached the end of your video library
+                                You&apos;ve reached the end of your video library
                             </p>
                         )}
                     </>

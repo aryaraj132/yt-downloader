@@ -147,7 +147,7 @@ export default function SetupPage() {
                             <div className="p-6">
                                 <p className="text-sm text-gray-400 mb-4">
                                     This token is used to identify your account for public API actions (like saving clips).
-                                    Keep it secret if you don't want others filling up your storage!
+                                    Keep it secret if you don&apos;t want others filling up your storage!
                                 </p>
 
                                 <div className="relative">
