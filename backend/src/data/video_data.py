@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class VideoData:
     """Data layer for video download operations."""
-    
+
     @staticmethod
     def download_video(
         video_id: str,
@@ -32,45 +32,45 @@ class VideoData:
     ) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Download video using database info (for API).
-        
+
         Args:
             video_id: Video document ID
             format_preference: Optional format (mp4, webm, best)
             resolution_preference: Optional resolution (1080p, 720p, best)
             progress_callback: Optional progress callback
             cookies_content: Optional Netscape formatted cookies string
-            
+
         Returns:
             Tuple of (success, file_path, error_message)
         """
         try:
             # Fetch from database
             video = Video.find_by_id(video_id)
-            
+
             if not video:
                 return False, None, "Video not found"
-            
+
             if video['status'] == VideoStatus.COMPLETED:
                 return True, video.get('file_path'), None
-            
+
             # Update status to processing
             Video.update_status(video_id, VideoStatus.PROCESSING)
-            
+
             # Extract parameters
             url = video['url']
             start_time = video['start_time']
             end_time = video['end_time']
-            
+
             # Use provided preferences or defaults
             format_pref = format_preference or Config.DEFAULT_VIDEO_FORMAT
             resolution_pref = resolution_preference or Config.DEFAULT_VIDEO_RESOLUTION
-            
+
             # Generate output path
             file_ext = format_pref if format_pref != 'best' else 'mp4'
             filename = f"{uuid.uuid4().hex}_{int(datetime.utcnow().timestamp())}.{file_ext}"
             output_path = os.path.join(Config.DOWNLOADS_DIR, filename)
             os.makedirs(Config.DOWNLOADS_DIR, exist_ok=True)
-            
+
             # Call service (pure logic, no database)
             success, file_path, error = VideoService.download_video_segment(
                 url=url,
@@ -83,15 +83,49 @@ class VideoData:
                 progress_callback=progress_callback,
                 cookies_content=cookies_content
             )
-            
+
             # Update database with result
             if success:
-                Video.update_status(video_id, VideoStatus.COMPLETED, file_path=file_path)
-                return True, file_path, None
+                # Upload to SeaweedFS
+                from src.services.storage_service import StorageService
+
+                object_name = f"{Config.S3_KEY_PREFIX}{os.path.basename(file_path)}"
+                logger.info(f"Uploading to SeaweedFS: {object_name}")
+
+                upload_success, upload_result = StorageService.upload_file(file_path, object_name)
+
+                if upload_success:
+                    # Update with S3 key and mode
+                    Video.update_status(
+                        video_id,
+                        VideoStatus.COMPLETED,
+                        file_path=object_name,
+                        storage_mode='s3'
+                    )
+
+                    # Delete local file
+                    try:
+                        os.remove(file_path)
+                        logger.info(f"Removed local file after S3 upload: {file_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to remove local file: {e}")
+
+                    return True, object_name, None
+                else:
+                    # Fallback to local if upload fails? Or fail the whole thing?
+                    # For now, let's keep it local if upload fails but log error
+                    logger.error(f"S3 upload failed: {upload_result}, keeping file local")
+                    Video.update_status(
+                        video_id,
+                        VideoStatus.COMPLETED,
+                        file_path=file_path,
+                        storage_mode='local'
+                    )
+                    return True, file_path, None
             else:
                 Video.update_status(video_id, VideoStatus.FAILED, error_message=error)
                 return False, None, error
-                
+
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Video download error: {error_msg}")

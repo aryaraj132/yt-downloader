@@ -21,12 +21,12 @@ class VideoStatus(str, Enum):
 
 class Video:
     """Video model for managing download requests."""
-    
+
     @staticmethod
     def create_video_info(
-        user_id: str, 
-        url: str, 
-        start_time: int, 
+        user_id: str,
+        url: str,
+        start_time: int,
         end_time: int,
         additional_message: Optional[str] = None,
         format_preference: Optional[str] = None,
@@ -46,7 +46,7 @@ class Video:
     ) -> Optional[str]:
         """
         Create a new video download request.
-        
+
         Args:
             user_id: User ID as string
             url: YouTube video URL
@@ -66,13 +66,13 @@ class Video:
             stream_start_time: When the livestream started
             chat_timestamp: When the chat message was sent
             public_token: Public token used to create this clip
-            
+
         Returns:
             Video ID as string if successful, None otherwise
         """
         try:
             db = get_database()
-            
+
             # Extract YouTube video ID from URL if not provided
             if not youtube_video_id and url:
                 import re
@@ -86,7 +86,7 @@ class Video:
                     if match:
                         youtube_video_id = match.group(1)
                         break
-            
+
             # Create video document
             video_doc = {
                 'user_id': ObjectId(user_id),
@@ -115,24 +115,24 @@ class Video:
                 'public_token': public_token
             }
 
-            
+
             result = db.videos.insert_one(video_doc)
             logger.info(f"Video info created for user {user_id}: {url}")
             return str(result.inserted_id)
-            
+
         except Exception as e:
             logger.error(f"Failed to create video info: {str(e)}")
             return None
 
-    
+
     @staticmethod
     def find_by_id(video_id: str) -> Optional[Dict]:
         """
         Find video by ID.
-        
+
         Args:
             video_id: Video ID as string
-            
+
         Returns:
             Video document or None if not found
         """
@@ -140,20 +140,20 @@ class Video:
             db = get_database()
             video = db.videos.find_one({'_id': ObjectId(video_id)})
             return video
-            
+
         except Exception as e:
             logger.error(f"Failed to find video by ID: {str(e)}")
             return None
-    
+
     @staticmethod
     def find_by_user(user_id: str, limit: int = 50) -> List[Dict]:
         """
         Find videos by user ID.
-        
+
         Args:
             user_id: User ID as string
             limit: Maximum number of videos to return
-            
+
         Returns:
             List of video documents
         """
@@ -163,62 +163,67 @@ class Video:
                 {'user_id': ObjectId(user_id)}
             ).sort('created_at', -1).limit(limit))
             return videos
-            
+
         except Exception as e:
             logger.error(f"Failed to find videos by user: {str(e)}")
             return []
-    
+
     @staticmethod
-    def update_status(video_id: str, status: VideoStatus, file_path: Optional[str] = None, 
-                     error_message: Optional[str] = None) -> bool:
+    def update_status(video_id: str, status: VideoStatus, file_path: Optional[str] = None,
+                     error_message: Optional[str] = None, storage_mode: Optional[str] = None) -> bool:
         """
         Update video processing status.
-        
+
         Args:
             video_id: Video ID as string
             status: New status
             file_path: Path to downloaded file (for completed status)
             error_message: Error message (for failed status)
-            
+            storage_mode: Storage mode (e.g., 'local', 's3')
+
         Returns:
             True if successful, False otherwise
         """
         try:
             db = get_database()
-            
+
             update_fields = {
                 'status': status
             }
-            
+
             if file_path:
                 update_fields['file_path'] = file_path
                 # Set expiration time when video is downloaded
                 update_fields['expires_at'] = datetime.utcnow() + timedelta(
                     minutes=Config.VIDEO_RETENTION_MINUTES
                 )
-            
+
+            if storage_mode:
+                update_fields['storage_mode'] = storage_mode
+
             if error_message:
                 update_fields['error_message'] = error_message
-            
+
             result = db.videos.update_one(
                 {'_id': ObjectId(video_id)},
                 {'$set': update_fields}
             )
-            
+
             if result.modified_count > 0:
+
                 logger.info(f"Video status updated to {status}: {video_id}")
                 return True
             return False
-            
+
         except Exception as e:
             logger.error(f"Failed to update video status: {str(e)}")
             return False
-    
+
     @staticmethod
     def find_expired() -> List[Dict]:
         """
         Find all expired videos that need cleanup.
-        
+
         Returns:
             List of expired video documents
         """
@@ -229,44 +234,44 @@ class Video:
                 'file_path': {'$ne': None}  # Only videos that have files
             }))
             return videos
-            
+
         except Exception as e:
             logger.error(f"Failed to find expired videos: {str(e)}")
             return []
-    
+
     @staticmethod
     def delete_video(video_id: str) -> bool:
         """
         Delete video document from database.
-        
+
         Args:
             video_id: Video ID as string
-            
+
         Returns:
             True if successful, False otherwise
         """
         try:
             db = get_database()
             result = db.videos.delete_one({'_id': ObjectId(video_id)})
-            
+
             if result.deleted_count > 0:
                 logger.info(f"Video deleted: {video_id}")
                 return True
             return False
-            
+
         except Exception as e:
             logger.error(f"Failed to delete video: {str(e)}")
             return False
-    
+
     @staticmethod
     def verify_ownership(video_id: str, user_id: str) -> bool:
         """
         Verify that a video belongs to a specific user.
-        
+
         Args:
             video_id: Video ID as string
             user_id: User ID as string
-            
+
         Returns:
             True if user owns the video, False otherwise
         """
@@ -274,13 +279,13 @@ class Video:
             video = Video.find_by_id(video_id)
             if not video:
                 return False
-            
+
             return str(video['user_id']) == user_id
-            
+
         except Exception as e:
             logger.error(f"Failed to verify video ownership: {str(e)}")
             return False
-    
+
     @staticmethod
     def create_encode_request(
         user_id: str,
@@ -291,20 +296,20 @@ class Video:
     ) -> Optional[str]:
         """
         Create a new video encoding request.
-        
+
         Args:
             user_id: User ID as string
             original_filename: Original uploaded filename
             input_file_path: Path to uploaded video file
             video_codec: Video codec to use (h264, h265, av1)
             quality_preset: Quality preset (lossless, high, medium)
-            
+
         Returns:
             Encode ID as string if successful, None otherwise
         """
         try:
             db = get_database()
-            
+
             encode_doc = {
                 'user_id': ObjectId(user_id),
                 'source_type': 'upload',
@@ -325,24 +330,24 @@ class Video:
                 'start_time': None,  # Not applicable for uploads
                 'end_time': None  # Not applicable for uploads
             }
-            
+
             result = db.videos.insert_one(encode_doc)
             logger.info(f"Encode request created for user {user_id}: {original_filename}")
             return str(result.inserted_id)
-            
+
         except Exception as e:
             logger.error(f"Failed to create encode request: {str(e)}")
             return None
-    
+
     @staticmethod
     def update_encoding_progress(encode_id: str, progress: int) -> bool:
         """
         Update encoding progress percentage.
-        
+
         Args:
             encode_id: Encode request ID
             progress: Progress percentage (0-100)
-            
+
         Returns:
             True if successful, False otherwise
         """

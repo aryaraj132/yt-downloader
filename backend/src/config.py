@@ -80,6 +80,14 @@ class Config:
     PUBLIC_API_MAX_CLIP_DURATION = int(os.getenv('PUBLIC_API_MAX_CLIP_DURATION', 40))  # Seconds
     PUBLIC_API_MAX_ENCODE_DURATION = int(os.getenv('PUBLIC_API_MAX_ENCODE_DURATION', 300))  # 5 minutes in seconds
 
+    # SeaweedFS S3 Configuration
+    S3_ENDPOINT_URL = os.getenv('S3_ENDPOINT_URL', '')
+    S3_ACCESS_KEY = os.getenv('S3_ACCESS_KEY', '')
+    S3_SECRET_KEY = os.getenv('S3_SECRET_KEY', '')
+    S3_REGION = os.getenv('S3_REGION', 'us-east-1')
+    S3_BUCKET_NAME = os.getenv('S3_BUCKET_NAME', 'yt-downloader')
+    S3_KEY_PREFIX = os.getenv('S3_KEY_PREFIX', 'videos/')
+
 
     @classmethod
     def validate(cls):

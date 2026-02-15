@@ -71,10 +71,20 @@ export const videoService = {
         return response.data;
     },
 
-    async downloadVideo(videoId: string, preferences?: DownloadPreferences): Promise<Blob> {
+    async downloadVideo(videoId: string, preferences?: DownloadPreferences): Promise<Blob | { download_url: string }> {
         const response = await api.post(`/video/download/${videoId}`, preferences || {}, {
             responseType: 'blob',
         });
+
+        // Check if response is JSON (redirect URL)
+        if (response.headers['content-type']?.includes('application/json')) {
+            const text = await response.data.text();
+            const json = JSON.parse(text);
+            if (json.download_url) {
+                return { download_url: json.download_url };
+            }
+        }
+
         return response.data;
     },
 
@@ -138,6 +148,15 @@ export const videoService = {
         const response = await publicApi.get(`/public/download/${jobId}`, {
             responseType: 'blob'
         });
+
+        // Check if response is JSON (redirect URL)
+        if (response.headers['content-type']?.includes('application/json')) {
+            const text = await response.data.text();
+            const json = JSON.parse(text);
+            if (json.download_url) {
+                return json.download_url;
+            }
+        }
 
         const blob = new Blob([response.data]);
         const url = window.URL.createObjectURL(blob);

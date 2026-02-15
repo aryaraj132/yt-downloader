@@ -202,10 +202,19 @@ export default function DownloadPage() {
                         const a = document.createElement('a');
                         a.href = blobUrl;
                         a.download = `clip.mp4`;
+
+                        // Open in new tab if it's a remote URL (S3)
+                        if (!blobUrl.startsWith('blob:')) {
+                            a.target = '_blank';
+                        }
+
                         document.body.appendChild(a);
                         a.click();
                         document.body.removeChild(a);
-                        window.URL.revokeObjectURL(blobUrl);
+
+                        if (blobUrl.startsWith('blob:')) {
+                            window.URL.revokeObjectURL(blobUrl);
+                        }
 
                         showToast('Clip downloaded successfully!', 'success');
                         setIsDownloading(false);

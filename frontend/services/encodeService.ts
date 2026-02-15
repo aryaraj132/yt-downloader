@@ -58,10 +58,20 @@ export const encodeService = {
         return response.data;
     },
 
-    async downloadEncodedVideo(encodeId: string): Promise<Blob> {
+    async downloadEncodedVideo(encodeId: string): Promise<Blob | { download_url: string }> {
         const response = await api.post(`/encode/download/${encodeId}`, {}, {
             responseType: 'blob',
         });
+
+        // Check if response is JSON (redirect URL)
+        if (response.headers['content-type']?.includes('application/json')) {
+            const text = await response.data.text();
+            const json = JSON.parse(text);
+            if (json.download_url) {
+                return { download_url: json.download_url };
+            }
+        }
+
         return response.data;
     },
 
