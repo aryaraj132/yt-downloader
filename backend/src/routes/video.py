@@ -291,7 +291,7 @@ def download_video(video_id):
         data = request.get_json() or {}
         format_pref = data.get('format_preference', Config.DEFAULT_VIDEO_FORMAT)
         resolution_pref = data.get('resolution_preference', Config.DEFAULT_VIDEO_RESOLUTION)
-        cookies = data.get('cookies') # Extract cookies from request
+        resolution_pref = data.get('resolution_preference', Config.DEFAULT_VIDEO_RESOLUTION)
 
         # Validate preferences if provided
         if format_pref != Config.DEFAULT_VIDEO_FORMAT:
@@ -354,8 +354,7 @@ def download_video(video_id):
         success, file_path, error = VideoData.download_video(
             video_id,
             format_preference=format_pref,
-            resolution_preference=resolution_pref,
-            cookies_content=cookies
+            resolution_preference=resolution_pref
         )
 
         if not success:
@@ -562,8 +561,7 @@ def get_available_formats_post():
 
     Request body:
         {
-            "video_id": "...",
-            "cookies": "..."
+            "video_id": "..."
         }
 
     Returns:
@@ -577,7 +575,7 @@ def get_available_formats_post():
     try:
         data = request.get_json() or {}
         video_id = data.get('video_id')
-        cookies = data.get('cookies')
+        video_id = data.get('video_id')
 
         if not video_id:
             return jsonify({'error': 'Video ID is required'}), 400
@@ -602,7 +600,7 @@ def get_available_formats_post():
             yt_video_id = video_id
 
         # Get available formats using YouTube service
-        formats_info = YouTubeService.get_available_formats(yt_video_id, cookies_content=cookies)
+        formats_info = YouTubeService.get_available_formats(yt_video_id)
 
         if not formats_info:
             return jsonify({'error': 'Failed to retrieve available formats'}), 500

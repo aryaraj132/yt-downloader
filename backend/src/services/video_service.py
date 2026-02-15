@@ -17,7 +17,7 @@ from src.services import ffmpeg_utils_service
 logger = logging.getLogger(__name__)
 
 class VideoService:
-    
+
     @staticmethod
     def download_video_segment(
         url: str,
@@ -27,22 +27,20 @@ class VideoService:
         format_preference: str = 'mp4',
         resolution_preference: str = '1080p',
         video_id: Optional[str] = None,
-        progress_callback: Optional[Callable[[Dict], None]] = None,
-        cookies_content: Optional[str] = None
+        progress_callback: Optional[Callable[[Dict], None]] = None
     ) -> Tuple[bool, Optional[str], Optional[str]]:
-        
-        cookies_file = None
+
         try:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            
+
             ffmpeg_path, ffmpeg_dir = ffmpeg_utils_service.get_ffmpeg_path()
             if not ffmpeg_path or not ffmpeg_dir:
                 return False, None, "FFmpeg not available"
-            
+
             resolution_height = VideoService._extract_resolution_height(resolution_preference)
             needs_encoding = False
             temp_webm_path = None
-            
+
             if resolution_height >= 1440 and format_preference == 'mp4':
                 needs_encoding = True
                 temp_webm_path = output_path.replace('.mp4', '_temp.webm')
@@ -51,9 +49,9 @@ class VideoService:
             else:
                 download_path = output_path
                 actual_format = format_preference
-            
+
             format_string = VideoService._build_format_string(resolution_preference, actual_format)
-            
+
             cmd = [
                 sys.executable, '-m', 'yt_dlp',
                 '--js-runtimes', 'node',
@@ -66,25 +64,12 @@ class VideoService:
                 '--newline'
             ]
 
-            if cookies_content:
-                # Create detailed timestamped filename to avoid collisions
-                cookies_filename = f"cookies_{uuid.uuid4()}_{int(time.time())}.txt"
-                cookies_file = os.path.join(os.path.dirname(output_path), cookies_filename)
-                
-                # Write cookies to file
-                with open(cookies_file, 'w', encoding='utf-8') as f:
-                    f.write(cookies_content)
-                
-                # securely pass cookies to yt-dlp
-                cmd.extend(['--cookies', cookies_file])
-                logger.info(f"Using provided cookies for download: {cookies_file}")
-            
             # Add FFmpeg location
             env = os.environ.copy()
             env['PATH'] = ffmpeg_dir + os.pathsep + env.get('PATH', '')
-            
+
             logger.info(f"Starting download: {url} ({start_time}-{end_time}s)")
-            
+
             process = subprocess.Popen(
                 cmd,
                 env=env,
@@ -93,16 +78,16 @@ class VideoService:
                 universal_newlines=True,
                 bufsize=1
             )
-            
+
             last_update = 0
             total_duration = max(end_time - start_time, 1)
             current_pass = 1
             last_current_time = 0
             current_phase = "Downloading (Pass 1)"
-            
+
             for line in process.stdout:
                 line = line.strip()
-                
+
                 if 'frame=' in line and 'time=' in line:
                     now = time.time()
                     # Parse time to detect resets (new pass) even if we throttle updates
@@ -112,30 +97,30 @@ class VideoService:
                         minutes = int(time_match.group(2))
                         seconds = float(time_match.group(3))
                         current_time = hours * 3600 + minutes * 60 + seconds
-                        
+
                         # Detect time reset indicating a new pass (e.g. Audio after Video)
                         if last_current_time > 0 and current_time < last_current_time - 10:
                             current_pass += 1
                             current_phase = f"Downloading (Pass {current_pass})"
                             last_current_time = 0 # Reset base
-                        
+
                         last_current_time = current_time
 
                         if now - last_update >= 0.1:
                             last_update = now
-                            
+
                             speed_match = re.search(r'speed=\s*(\d+\.?\d*)x', line)
                             size_match = re.search(r'size=\s*(\d+)KiB', line)
-                            
+
                             percent = (current_time / total_duration * 100)
                             percent = min(percent, 100)
-                            
+
                             speed_str = f"{speed_match.group(1)}x" if speed_match else "?"
                             size_str = f"{int(size_match.group(1)) / 1024:.1f}MB" if size_match else "?"
-                            
+
                             eta_seconds = ((total_duration - current_time) / float(speed_match.group(1))) if speed_match and float(speed_match.group(1)) > 0 else 0
                             eta_str = f"{int(eta_seconds//60)}:{int(eta_seconds%60):02d}" if eta_seconds > 0 else "?"
-                            
+
                             progress_data = {
                                 'percent': percent,
                                 'size': size_str,
@@ -143,7 +128,7 @@ class VideoService:
                                 'eta': eta_str,
                                 'phase': current_phase
                             }
-                            
+
                             if video_id:
                                 from src.services.progress_cache import ProgressCache
                                 ProgressCache.set_progress(video_id, {
@@ -152,19 +137,19 @@ class VideoService:
                                     'speed': progress_data['speed'],
                                     'eta': progress_data['eta']
                                 })
-                            
+
                             if progress_callback:
                                 progress_callback(progress_data)
-                
+
                 elif '[Merger]' in line or 'Merging' in line.lower():
                     if video_id:
                         from src.services.progress_cache import ProgressCache
                         ProgressCache.update_field(video_id, 'current_phase', 'merging')
                     if progress_callback:
                         progress_callback({'phase': 'Merging', 'percent': 100})
-            
+
             process.wait()
-            
+
             # Ensure we report 100% at the end
             if process.returncode == 0 and progress_callback:
                 progress_callback({
@@ -174,22 +159,22 @@ class VideoService:
                     'eta': "0:00",
                     'phase': "Complete"
                 })
-            
+
             if process.returncode != 0:
                 error_msg = f"yt-dlp failed (exit code {process.returncode})"
                 logger.error(error_msg)
                 return False, None, error_msg
-            
+
             if not os.path.exists(download_path):
                 error_msg = "Downloaded file not found"
                 logger.error(error_msg)
                 return False, None, error_msg
-            
+
             if needs_encoding:
                 from src.services.encoding_service import EncodingService
-                
+
                 logger.info(f"Encoding {download_path} to {output_path}")
-                
+
                 success, error = EncodingService.encode_video_to_mp4(
                     download_path,
                     output_path,
@@ -208,68 +193,63 @@ class VideoService:
                     'eta': "0:00",
                     'phase': "Complete"
                     })
-                
+
                 try:
                     if os.path.exists(download_path):
                         os.remove(download_path)
                         logger.info(f"Removed temp file: {download_path}")
                 except Exception as e:
                     logger.warning(f"Could not remove temp file: {e}")
-                
+
                 if not success:
                     return False, None, f"Encoding failed: {error}"
-                
+
                 logger.info(f"Encoding successful: {output_path}")
                 return True, output_path, None
             else:
                 logger.info(f"Download successful: {output_path}")
                 return True, download_path, None
-            
+
         except subprocess.TimeoutExpired:
             error_msg = "Download timeout"
             logger.error(f"Download timeout")
             return False, None, error_msg
-            
+
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Download error: {error_msg}")
             import traceback
             traceback.print_exc()
             return False, None, error_msg
-        
+
         finally:
-             if cookies_file and os.path.exists(cookies_file):
-                try:
-                    os.remove(cookies_file)
-                    logger.info(f"Removed cookies file: {cookies_file}")
-                except Exception as e:
-                    logger.warning(f"Could not remove cookies file: {e}")
-    
+            pass
+
     @staticmethod
     def _extract_resolution_height(resolution: str) -> int:
 
         if resolution in ['best', 'worst']:
             return 0
-        
+
         match = re.search(r'(\d+)p?', resolution)
         if match:
             return int(match.group(1))
-        
+
         return 0
-    
+
     @staticmethod
     def _build_format_string(resolution: str, format_ext: str) -> str:
-        
+
         # Handle special cases
         if resolution == 'best' and format_ext == 'best':
             return 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best'
-        
+
         if resolution == 'best':
             if format_ext == 'mp4':
                 return 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/best[ext=mp4]/best'
             else:
                 return f'bestvideo[ext={format_ext}]+bestaudio/best[ext={format_ext}]/best'
-        
+
         # Extract height from resolution
         if resolution.endswith('p'):
             try:
@@ -280,7 +260,7 @@ class VideoService:
             height = int(resolution)
         else:
             height = None
-        
+
         # Build format string with resolution constraint
         if height:
             if format_ext == 'mp4':
@@ -289,13 +269,13 @@ class VideoService:
                 return f'bestvideo[height<={height}]+bestaudio/best[height<={height}]'
             else:
                 return f'bestvideo[height<={height}][ext={format_ext}]+bestaudio/best[height<={height}][ext={format_ext}]/best'
-        
+
         # Fallback
         return 'bestvideo+bestaudio/best'
 
     @staticmethod
     def get_video_info(url: str) -> Optional[Dict]:
-        
+
         try:
             cmd = [
                 sys.executable, '-m', 'yt_dlp',
@@ -305,28 +285,28 @@ class VideoService:
                 '--no-warnings',
                 '--quiet'
             ]
-            
+
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=30
             )
-            
+
             if result.returncode != 0:
                 logger.error(f"Failed to get video info: {result.stderr}")
                 return None
-            
+
             import json
             info = json.loads(result.stdout)
-            
+
             return {
                 'title': info.get('title'),
                 'duration': info.get('duration'),
                 'thumbnail': info.get('thumbnail'),
                 'uploader': info.get('uploader')
             }
-            
+
         except Exception as e:
             logger.error(f"Get video info error: {str(e)}")
             return None

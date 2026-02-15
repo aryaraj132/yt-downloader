@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
+    # Node.js is required for yt-dlp-get-pot plugin
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
