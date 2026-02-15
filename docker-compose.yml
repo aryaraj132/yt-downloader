@@ -21,6 +21,9 @@ services:
     restart: unless-stopped
     networks:
       - yt-downloader-network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
   # Frontend Service (Next.js)
   frontend:

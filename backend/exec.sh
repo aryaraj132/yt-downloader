@@ -6,6 +6,7 @@ docker pull aryaraj132/yt-downloader-backend:latest
 
 docker run -dp 5000:5000 --restart=always --name yt-downloader-backend \
   --interactive --tty \
+  --dns 8.8.8.8 --dns 8.8.4.4 \
   aryaraj132/yt-downloader-backend:latest
 
 dangling=$(sudo docker images --filter "dangling=true" -q)

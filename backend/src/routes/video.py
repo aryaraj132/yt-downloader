@@ -730,3 +730,60 @@ def get_available_resolutions():
     except Exception as e:
         logger.error(f"Get available resolutions error: {str(e)}")
         return jsonify({'error': 'Internal server error'}), 500
+
+
+@video_bp.route('/debug/connectivity', methods=['GET'])
+def debug_connectivity():
+    """Debug endpoint to check backend internet connectivity."""
+    import socket
+    import requests
+    import subprocess
+
+    results = {
+        'dns_google': 'failed',
+        'http_google': 'failed',
+        'http_youtube': 'failed',
+        'ytdlp_version': 'failed',
+        'external_ip': 'failed'
+    }
+
+    # Check 1: External IP
+    try:
+        ip = requests.get('https://api.ipify.org', timeout=5).text
+        results['external_ip'] = ip
+    except Exception as e:
+        results['external_ip'] = f"Failed: {str(e)}"
+
+    # Check 2: DNS Resolution
+    try:
+        ip = socket.gethostbyname('www.google.com')
+        results['dns_google'] = f"Success: {ip}"
+    except Exception as e:
+        results['dns_google'] = f"Failed: {str(e)}"
+
+    # Check 3: Google HTTP
+    try:
+        resp = requests.get('https://www.google.com', timeout=5)
+        results['http_google'] = f"Status: {resp.status_code}"
+    except Exception as e:
+        results['http_google'] = f"Failed: {str(e)}"
+
+    # Check 4: YouTube HTTP
+    try:
+        resp = requests.get('https://www.youtube.com', timeout=5)
+        results['http_youtube'] = f"Status: {resp.status_code}"
+    except Exception as e:
+        results['http_youtube'] = f"Failed: {str(e)}"
+
+    # Check 5: yt-dlp version check
+    try:
+        cmd = ['yt-dlp', '--version']
+        process = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        if process.returncode == 0:
+             results['ytdlp_version'] = process.stdout.strip()
+        else:
+             results['ytdlp_version'] = f"Failed: {process.stderr}"
+    except Exception as e:
+        results['ytdlp_version'] = f"Exception: {str(e)}"
+
+    return jsonify(results)
