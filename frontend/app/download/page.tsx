@@ -12,8 +12,7 @@ import { videoService } from '@/services/videoService';
 import { authService } from '@/services/authService';
 import { useAuthStore } from '@/store/authStore';
 import { extractYoutubeVideoId } from '@/utils/validation';
-import { downloadFile } from '@/utils/downloadFile';
-import { Download, Loader, AlertCircle, Clock, User } from 'lucide-react';
+import { Download, Loader, AlertCircle, Clock, User, ExternalLink } from 'lucide-react';
 
 const PUBLIC_MAX_DURATION = 40; // seconds
 
@@ -111,27 +110,46 @@ export default function DownloadPage() {
             );
 
             setSavedVideoId(saveResponse.video_id);
-            showToast('Video info saved! Starting download...', 'success');
+            showToast('Video info saved! Queuing download...', 'success');
 
-            // Step 2: Poll for status and download
+            // Step 2: Queue the download job
+            const downloadResponse = await videoService.downloadVideo(saveResponse.video_id, {
+                format_preference: selectedFormat as any,
+                resolution_preference: selectedResolution as any,
+            });
+
+            // If already completed (cached), redirect to download directly
+            if (downloadResponse.download_url && downloadResponse.status === 'completed') {
+                window.open(downloadResponse.download_url, '_blank');
+                showToast('Video ready! Opening download...', 'success');
+                setIsDownloading(false);
+                setDownloadProgress(0);
+                return;
+            }
+
+            showToast('Job queued! Processing your video...', 'info');
+
+            // Step 3: Poll for status
             const pollInterval = setInterval(async () => {
                 try {
                     const status = await videoService.getVideoStatus(saveResponse.video_id);
 
                     if (status.progress) {
-                        setDownloadProgress(status.progress.download_progress || 0);
+                        const phase = status.progress.current_phase;
+                        const dlProgress = status.progress.download_progress || 0;
+                        const encProgress = status.progress.encoding_progress || 0;
+                        // Combine: downloading = 0-80%, encoding = 80-95%, uploading = 95-100%
+                        let combined = 0;
+                        if (phase === 'downloading') combined = dlProgress * 0.8;
+                        else if (phase === 'encoding') combined = 80 + encProgress * 0.15;
+                        else if (phase === 'uploading') combined = 95;
+                        else if (phase === 'completed') combined = 100;
+                        setDownloadProgress(Math.round(combined));
                     }
 
-                    if (status.status === 'completed') {
+                    if (status.status === 'completed' && status.download_url) {
                         clearInterval(pollInterval);
-
-                        // Download the video
-                        const blob = await videoService.downloadVideo(saveResponse.video_id, {
-                            format_preference: selectedFormat as any,
-                            resolution_preference: selectedResolution as any,
-                        });
-
-                        downloadFile(blob, `video_${saveResponse.video_id}.${selectedFormat}`);
+                        window.open(status.download_url, '_blank');
                         showToast('Video downloaded successfully!', 'success');
                         setIsDownloading(false);
                         setDownloadProgress(0);
@@ -149,14 +167,14 @@ export default function DownloadPage() {
                 }
             }, 2000);
 
-            // Timeout after 5 minutes
+            // Timeout after 10 minutes (longer since jobs go through queue)
             setTimeout(() => {
                 clearInterval(pollInterval);
                 if (isDownloading) {
-                    showToast('Download timeout. Check dashboard for status.', 'warning');
+                    showToast('Download is taking longer than expected. Check Download Center for status.', 'warning');
                     setIsDownloading(false);
                 }
-            }, 300000);
+            }, 600000);
 
         } catch (error: any) {
             showToast(error.response?.data?.message || 'Download failed', 'error');

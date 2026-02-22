@@ -16,12 +16,14 @@ export interface DownloadPreferences {
 }
 
 export interface VideoProgress {
-    current_phase: 'downloading' | 'encoding' | 'initializing';
+    current_phase: 'downloading' | 'encoding' | 'uploading' | 'initializing' | 'completed' | 'failed';
     download_progress: number;
     encoding_progress: number;
     speed?: string;
     eta?: string;
     fps?: number;
+    status?: string;
+    error_message?: string;
 }
 
 export interface VideoStatus {
@@ -34,6 +36,29 @@ export interface VideoStatus {
     file_available: boolean;
     available_formats?: string[];
     progress?: VideoProgress;
+    error_message?: string;
+    download_url?: string;
+    job_id?: string;
+}
+
+export interface RecentJob {
+    job_id: string;
+    video_id: string;
+    job_type: 'download' | 'encode';
+    status: string;
+    created_at: string;
+    updated_at?: string;
+    completed_at?: string;
+    url?: string;
+    youtube_video_id?: string;
+    original_filename?: string;
+    start_time?: number;
+    end_time?: number;
+    video_codec?: string;
+    quality_preset?: string;
+    file_available: boolean;
+    download_url?: string;
+    file_size_bytes?: number;
     error_message?: string;
 }
 
@@ -71,20 +96,8 @@ export const videoService = {
         return response.data;
     },
 
-    async downloadVideo(videoId: string, preferences?: DownloadPreferences): Promise<Blob | { download_url: string }> {
-        const response = await api.post(`/video/download/${videoId}`, preferences || {}, {
-            responseType: 'blob',
-        });
-
-        // Check if response is JSON (redirect URL)
-        if (response.headers['content-type']?.includes('application/json')) {
-            const text = await response.data.text();
-            const json = JSON.parse(text);
-            if (json.download_url) {
-                return { download_url: json.download_url };
-            }
-        }
-
+    async downloadVideo(videoId: string, preferences?: DownloadPreferences): Promise<{ job_id: string; video_id: string; status: string; download_url?: string; message: string }> {
+        const response = await api.post(`/video/download/${videoId}`, preferences || {});
         return response.data;
     },
 
@@ -95,6 +108,11 @@ export const videoService = {
 
     async listUserVideos(page: number = 1, limit: number = 20): Promise<{ videos: Video[]; pagination: PaginationInfo }> {
         const response = await api.get(`/video/list?page=${page}&limit=${limit}`);
+        return response.data;
+    },
+
+    async getRecentJobs(): Promise<{ jobs: RecentJob[]; count: number; period: string }> {
+        const response = await api.get('/jobs/recent');
         return response.data;
     },
 

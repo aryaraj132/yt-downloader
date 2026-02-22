@@ -1,23 +1,14 @@
-version: '3.8'
-
 services:
-  # Backend Service (Python + Node.js)
-  backend:
+  # API Server (TypeScript/Express)
+  api-server:
     build:
-      context: ./backend
+      context: ./api-server
       dockerfile: Dockerfile
-    container_name: yt-downloader-backend
-    # Port not exposed externally - accessed only via frontend API proxy
+    container_name: yt-downloader-api
     expose:
       - "5000"
-    environment:
-      - FLASK_ENV=production
-      - PYTHONUNBUFFERED=1
     env_file:
       - .env
-    volumes:
-      - ./backend/downloads:/app/downloads
-      - ./backend/logs:/app/logs
     restart: unless-stopped
     networks:
       - yt-downloader-network
@@ -25,24 +16,41 @@ services:
       - 8.8.8.8
       - 8.8.4.4
 
-  # Frontend Service (Next.js)
+  # Frontend (Next.js)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - BACKEND_URL=http://backend:5000
+        - BACKEND_URL=http://api-server:5000
     container_name: yt-downloader-frontend
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - BACKEND_URL=http://backend:5000
+      - BACKEND_URL=http://api-server:5000
     restart: unless-stopped
     networks:
       - yt-downloader-network
     depends_on:
-      - backend
+      - api-server
+
+  # Worker (Python — can also run on a separate server)
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: yt-downloader-worker
+    env_file:
+      - .env
+    volumes:
+      - ./worker/cookiesFile:/app/cookiesFile
+    restart: unless-stopped
+    networks:
+      - yt-downloader-network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
 networks:
   yt-downloader-network:

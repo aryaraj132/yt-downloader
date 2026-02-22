@@ -1,25 +1,15 @@
 # Dependencies
 node_modules/
 
-# Next.js
-.next/
-out/
-
 # Build output
 dist/
-build/
 
 # Environment
 .env
 .env.local
-.env.*.local
 
 # TypeScript cache
 *.tsbuildinfo
-next-env.d.ts
-
-# Testing
-coverage/
 
 # Logs
 *.log
@@ -31,8 +21,3 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
-
-# Misc
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*

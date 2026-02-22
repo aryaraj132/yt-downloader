@@ -1,33 +1,14 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib64/
-parts/
-node_modules/
-.next/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+# === Root-level ignores (only for files/folders at the root) ===
 
-# Virtual Environment
-venv/
-ENV/
-env/
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Firebase credentials
+firebase-adminsdk-*.json
+service-account-key.json
+firebase-service-account.json
 
 # IDE
 .vscode/
@@ -36,43 +17,22 @@ env/
 *.swo
 *~
 
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Firebase
-firebase-adminsdk-*.json
-service-account-key.json
-
-# Downloads directory (temporary video files)
-downloads/*.mp4
-downloads/*.webm
-downloads/*.mkv
-!downloads/.gitkeep
-
-# Local bin directory (FFmpeg binaries)
-bin/
+# OS
+.DS_Store
+Thumbs.db
 
 # Logs
 *.log
 logs/
 
-# OS
-.DS_Store
-Thumbs.db
+# Downloads directory (temporary video files)
+downloads/
+uploads/
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
+# Legacy Python cache at root
+__pycache__/
 
-# Database
-*.db
-*.sqlite
-
-# Video files (all formats)
+# Video files (prevent accidental commits)
 *.mp4
 *.avi
 *.mkv
@@ -84,10 +44,14 @@ htmlcov/
 *.mpg
 *.mpeg
 *.3gp
-
 *.mts
 *.m2ts
 *.vob
 *.ogv
 *.gifv
-firebase-service-account.json
+
+# Legacy folders (moved to legacy/ directory)
+/legacy/
+
+# npmrc
+*.npmrc

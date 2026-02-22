@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv/
+
+# Environment
+.env
+.env.local
+
+# Distribution
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Cookies (user-specific)
+cookiesFile/*.txt
+!cookiesFile/how-to.md
+
+# Temp files
+tmp/
+*.tmp
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

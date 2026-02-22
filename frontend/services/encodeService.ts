@@ -17,18 +17,29 @@ export interface StartEncodingData {
     quality_preset: 'lossless' | 'high' | 'medium';
 }
 
+export interface EncodingProgress {
+    current_phase: 'downloading_source' | 'encoding' | 'uploading' | 'completed' | 'failed' | 'initializing';
+    download_progress: number;
+    encoding_progress: number;
+    status?: string;
+}
+
 export interface EncodingStatus {
     encode_id: string;
     status: 'pending' | 'processing' | 'completed' | 'failed';
-    progress: number;
+    progress?: EncodingProgress;
     original_filename: string;
     video_codec: string;
     quality_preset: string;
     created_at: string;
     encoding_started_at?: string;
+    encoding_completed_at?: string;
+    encoding_duration_seconds?: number;
     file_available: boolean;
     file_size_mb?: number;
     error_message?: string;
+    download_url?: string;
+    job_id?: string;
 }
 
 export interface SupportedCodecs {
@@ -48,7 +59,7 @@ export const encodeService = {
         return response.data;
     },
 
-    async startEncoding(encodeId: string, data: StartEncodingData): Promise<{ message: string; encode_id: string; file_size_mb?: number }> {
+    async startEncoding(encodeId: string, data: StartEncodingData): Promise<{ message: string; encode_id: string; job_id: string; status: string; file_size_mb?: number }> {
         const response = await api.post(`/encode/start/${encodeId}`, data);
         return response.data;
     },
@@ -58,20 +69,8 @@ export const encodeService = {
         return response.data;
     },
 
-    async downloadEncodedVideo(encodeId: string): Promise<Blob | { download_url: string }> {
-        const response = await api.post(`/encode/download/${encodeId}`, {}, {
-            responseType: 'blob',
-        });
-
-        // Check if response is JSON (redirect URL)
-        if (response.headers['content-type']?.includes('application/json')) {
-            const text = await response.data.text();
-            const json = JSON.parse(text);
-            if (json.download_url) {
-                return { download_url: json.download_url };
-            }
-        }
-
+    async downloadEncodedVideo(encodeId: string): Promise<{ download_url: string; message: string }> {
+        const response = await api.post(`/encode/download/${encodeId}`);
         return response.data;
     },
 
